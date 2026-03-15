@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useBrand } from "@/components/BrandProvider";
-import { MessageSquare, Clock, CheckCircle, XCircle, TrendingUp, ArrowRight, RefreshCw, Wifi, WifiOff } from "lucide-react";
+import { MessageSquare, Clock, CheckCircle, XCircle, TrendingUp, ArrowRight, RefreshCw, Wifi, WifiOff, Zap } from "lucide-react";
 import { Link } from "wouter";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -51,18 +51,27 @@ interface Stats {
   brandMentions: Record<string, number>;
 }
 
-function KpiCard({ label, value, icon: Icon, sub, color }: {
-  label: string; value: number; icon: React.ElementType; sub?: string; color: string;
+/** GlacialAI-style KPI card: colored large number, icon circle, subtle sub-label */
+function KpiCard({ label, value, icon: Icon, sub, numColor, iconBg }: {
+  label: string;
+  value: number;
+  icon: React.ElementType;
+  sub?: string;
+  numColor: string;   // Tailwind text color class for the big number
+  iconBg: string;     // Tailwind bg + text class for icon circle
 }) {
   return (
-    <div className="bg-card border border-card-border rounded-xl p-5 shadow-sm" data-testid={`kpi-${label.toLowerCase().replace(/\s+/g, "-")}`}>
+    <div
+      className="bg-card border border-card-border rounded-xl p-5 shadow-sm"
+      data-testid={`kpi-${label.toLowerCase().replace(/\s+/g, "-")}`}
+    >
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="text-3xl font-bold mt-1">{value}</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+          <p className={cn("text-4xl font-bold mt-1 tabular-nums", numColor)}>{value}</p>
           {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
         </div>
-        <div className={cn("p-2.5 rounded-lg", color)}>
+        <div className={cn("p-2.5 rounded-full", iconBg)}>
           <Icon size={18} />
         </div>
       </div>
@@ -70,8 +79,8 @@ function KpiCard({ label, value, icon: Icon, sub, color }: {
   );
 }
 
-const SENTIMENT_COLORS = ["#10b981", "#f59e0b", "#ef4444"];
-const PLATFORM_COLORS = ["#0ea5e9", "#f97316", "#2563eb", "#9333ea", "#64748b"];
+const SENTIMENT_COLORS = ["#10b981", "#64748b", "#ef4444"];
+const PLATFORM_COLORS = ["#0ea5e9", "#f97316", "#2563eb", "#9333ea", "#64748b", "#06b6d4", "#f59e0b"];
 
 function timeAgo(ts: string) {
   const diff = Date.now() - new Date(ts).getTime();
@@ -132,71 +141,108 @@ export function Dashboard() {
     ? Object.entries(stats.brandMentions).map(([name, value]) => ({ name, value }))
     : [];
 
+  const liveMonitoringActive = tavilyStatus?.enabled || (tavilyStatus?.totalRuns ?? 0) > 0;
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold">{brand.name} — Dashboard</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Monitoring {brand.monitoredBrands.length} brand{brand.monitoredBrands.length !== 1 ? "s" : ""}
-            </p>
-          </div>
+
+      {/* Header — GlacialAI style: title+sub left, live status + Review Queue right */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold">Command Center</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Monitoring {brand.monitoredBrands.slice(0, 4).join(", ")}{brand.monitoredBrands.length > 4 ? ` & ${brand.monitoredBrands.length - 4} more` : ""}
+          </p>
+        </div>
+
+        {/* Right side: live status pill + Review Queue button */}
+        <div className="flex items-center gap-3 shrink-0">
+          {liveMonitoringActive ? (
+            <div className="flex flex-col items-end gap-0.5" data-testid="tavily-status-bar">
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${tavilyStatus?.isRunning ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
+                <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                  {tavilyStatus?.isRunning ? "Scanning now…" : "Live monitoring active · every 3 hours"}
+                </span>
+              </div>
+              {!tavilyStatus?.isRunning && countdown && (
+                <p className="text-xs text-muted-foreground">Next scan in {countdown}</p>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="tavily-status-bar">
+              <WifiOff size={12} />
+              <span>Auto-scan offline</span>
+            </div>
+          )}
+
+          {/* Solid teal Review Queue button matching GlacialAI */}
           <Button
-            size="sm"
-            variant="outline"
-            className="text-xs h-8 shrink-0"
+            className="gap-2 shrink-0"
             data-testid="button-review-queue"
             onClick={() => window.location.hash = "/queue"}
           >
+            <MessageSquare size={15} />
             Review Queue
           </Button>
         </div>
-
-        {/* Live monitoring status bar — matches GlacialAI */}
-        <div className="flex items-center gap-2 text-xs" data-testid="tavily-status-bar">
-          {(tavilyStatus?.enabled || tavilyStatus?.totalRuns > 0) ? (
-            <>
-              <span className={`w-2 h-2 rounded-full shrink-0 ${tavilyStatus.isRunning ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
-              <Wifi size={12} className="text-emerald-500" />
-              <span className="font-medium text-foreground">
-                {tavilyStatus.isRunning ? "Scanning now…" : "Live monitoring active · every 3 hours"}
-              </span>
-              {!tavilyStatus.isRunning && countdown && (
-                <span className="text-muted-foreground">· Next scan in {countdown}</span>
-              )}
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-xs h-6 px-2 ml-1"
-                data-testid="button-manual-refresh"
-                disabled={refreshMutation.isPending || tavilyStatus?.isRunning}
-                onClick={() => refreshMutation.mutate()}
-              >
-                <RefreshCw size={11} className={refreshMutation.isPending ? "animate-spin mr-1" : "mr-1"} />
-                {refreshMutation.isPending ? "Scanning…" : "Scan Now"}
-              </Button>
-            </>
-          ) : (
-            <>
-              <WifiOff size={12} className="text-muted-foreground" />
-              <span className="text-muted-foreground">Auto-scan offline — set NODE_ENV=production + TAVILY_API_KEY to enable</span>
-            </>
-          )}
-        </div>
       </div>
 
-      {/* KPI Row */}
+      {/* Scan Now row — only when monitoring active */}
+      {liveMonitoringActive && (
+        <div className="flex items-center gap-2 -mt-3">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-xs h-7 px-2 text-muted-foreground"
+            data-testid="button-manual-refresh"
+            disabled={refreshMutation.isPending || tavilyStatus?.isRunning}
+            onClick={() => refreshMutation.mutate()}
+          >
+            <RefreshCw size={11} className={cn("mr-1.5", refreshMutation.isPending && "animate-spin")} />
+            {refreshMutation.isPending ? "Scanning…" : "Scan Now"}
+          </Button>
+        </div>
+      )}
+
+      {/* KPI Row — GlacialAI style with colored numbers */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {statsLoading ? (
-          Array.from({length: 4}).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+          Array.from({length: 4}).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)
         ) : (
           <>
-            <KpiCard label="Total Captures" value={stats?.totalCaptures ?? 0} icon={TrendingUp} sub="All time" color="bg-primary/10 text-primary" />
-            <KpiCard label="Awaiting Review" value={stats?.awaitingReview ?? 0} icon={Clock} sub="Needs attention" color="bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300" />
-            <KpiCard label="Replies Sent" value={stats?.repliesSent ?? 0} icon={CheckCircle} sub="Via Reply Studio" color="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" />
-            <KpiCard label="Dismissed" value={stats?.dismissed ?? 0} icon={XCircle} sub="Not relevant" color="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400" />
+            <KpiCard
+              label="Total Captured"
+              value={stats?.totalCaptures ?? 0}
+              icon={MessageSquare}
+              sub="All conversations"
+              numColor="text-primary"
+              iconBg="bg-primary/10 text-primary"
+            />
+            <KpiCard
+              label="Awaiting Review"
+              value={stats?.awaitingReview ?? 0}
+              icon={Clock}
+              sub={`${stats?.awaitingReview ?? 0} pending · 0 in review`}
+              numColor="text-amber-500"
+              iconBg="bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-300"
+            />
+            <KpiCard
+              label="Replies Sent"
+              value={stats?.repliesSent ?? 0}
+              icon={CheckCircle}
+              sub="Human-approved replies"
+              numColor="text-emerald-600 dark:text-emerald-400"
+              iconBg="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300"
+            />
+            <KpiCard
+              label="Dismissed"
+              value={stats?.dismissed ?? 0}
+              icon={XCircle}
+              sub="Not relevant / archived"
+              numColor="text-slate-500"
+              iconBg="bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+            />
           </>
         )}
       </div>
@@ -205,7 +251,7 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Sentiment donut */}
         <div className="bg-card border border-card-border rounded-xl p-5 shadow-sm">
-          <h2 className="text-sm font-semibold mb-3">Sentiment Breakdown</h2>
+          <h2 className="text-sm font-semibold mb-3">Sentiment Overview</h2>
           {statsLoading ? <Skeleton className="h-40 w-full" /> : (
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
@@ -217,10 +263,14 @@ export function Dashboard() {
             </ResponsiveContainer>
           )}
           <div className="flex justify-center gap-4 mt-2">
-            {["Positive","Neutral","Negative"].map((label, i) => (
+            {[
+              { label: "Positive", color: SENTIMENT_COLORS[0], val: stats?.sentimentBreakdown.positive },
+              { label: "Neutral",  color: SENTIMENT_COLORS[1], val: stats?.sentimentBreakdown.neutral },
+              { label: "Negative", color: SENTIMENT_COLORS[2], val: stats?.sentimentBreakdown.negative },
+            ].map(({ label, color, val }) => (
               <div key={label} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="w-2 h-2 rounded-full inline-block" style={{background: SENTIMENT_COLORS[i]}} />
-                {label}
+                <span className="w-2 h-2 rounded-full inline-block" style={{ background: color }} />
+                {label} {val !== undefined && <span className="font-medium text-foreground">{val}</span>}
               </div>
             ))}
           </div>
@@ -228,10 +278,10 @@ export function Dashboard() {
 
         {/* Platform bar */}
         <div className="bg-card border border-card-border rounded-xl p-5 shadow-sm">
-          <h2 className="text-sm font-semibold mb-3">Platform Distribution</h2>
+          <h2 className="text-sm font-semibold mb-3">By Platform</h2>
           {statsLoading ? <Skeleton className="h-40 w-full" /> : (
             <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={platformData} barSize={20}>
+              <BarChart data={platformData} barSize={22}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={25} />
@@ -248,10 +298,10 @@ export function Dashboard() {
         <div className="bg-card border border-card-border rounded-xl p-5 shadow-sm">
           <h2 className="text-sm font-semibold mb-3">Brand Mentions</h2>
           {statsLoading ? <Skeleton className="h-40 w-full" /> : (
-            <div className="space-y-2 mt-2">
+            <div className="space-y-2.5 mt-1">
               {brandData.map((b, i) => (
-                <div key={b.name} className="flex items-center gap-2" data-testid={`brand-mention-${b.name}`}>
-                  <span className="text-xs text-muted-foreground w-24 truncate">{b.name}</span>
+                <div key={b.name} className="flex items-center gap-3" data-testid={`brand-mention-${b.name}`}>
+                  <span className="text-xs text-muted-foreground w-28 truncate">{b.name}</span>
                   <div className="flex-1 bg-muted rounded-full h-2">
                     <div
                       className="h-2 rounded-full"
@@ -261,7 +311,7 @@ export function Dashboard() {
                       }}
                     />
                   </div>
-                  <span className="text-xs font-medium w-4 text-right">{b.value}</span>
+                  <span className="text-xs font-medium w-5 text-right">{b.value}</span>
                 </div>
               ))}
             </div>
@@ -274,7 +324,10 @@ export function Dashboard() {
         {/* High priority queue */}
         <div className="bg-card border border-card-border rounded-xl shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <h2 className="text-sm font-semibold">High Priority Queue</h2>
+            <div className="flex items-center gap-2">
+              <Zap size={14} className="text-amber-500" />
+              <h2 className="text-sm font-semibold">High Priority — Needs Review</h2>
+            </div>
             <Link href="/queue" className="text-xs text-primary flex items-center gap-1 hover:underline" data-testid="link-view-queue">
               View all <ArrowRight size={12} />
             </Link>
@@ -286,17 +339,18 @@ export function Dashboard() {
               <p className="text-sm text-muted-foreground px-5 py-6 text-center">No high-priority conversations.</p>
             ) : highPriority.slice(0, 4).map(c => (
               <Link href={`/queue?id=${c.id}`} key={c.id} className="flex items-start gap-3 px-5 py-3 hover:bg-accent cursor-pointer" data-testid={`conv-preview-${c.id}`}>
-                  <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
                     <p className="text-sm font-medium truncate">{c.authorName}</p>
-                    <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{c.content}</p>
+                    <span className="text-xs text-muted-foreground">— {c.sentiment === "positive" ? "Positive" : c.sentiment === "negative" ? "Negative" : "Neutral"}</span>
                   </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <span className={`text-xs px-1.5 py-0.5 rounded font-medium sentiment-${c.sentiment}`}>
-                      {c.sentiment}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{timeAgo(c.publishedAt)}</span>
-                  </div>
-            </Link>
+                  <p className="text-xs text-muted-foreground line-clamp-2">{c.content}</p>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <span className="text-xs text-muted-foreground">{c.platform}</span>
+                  <span className="text-xs text-muted-foreground">{timeAgo(c.publishedAt)}</span>
+                </div>
+              </Link>
             ))}
           </div>
         </div>

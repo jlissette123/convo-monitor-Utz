@@ -11,13 +11,23 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 
-const NAV = [
-  { path: "/",            icon: LayoutDashboard, label: "Dashboard",          badge: false },
-  { path: "/queue",       icon: MessageSquare,   label: "Conversation Inbox", badge: true  },
-  { path: "/studio",      icon: Edit3,           label: "Reply Studio",       badge: false },
-  { path: "/knowledge",   icon: BookOpen,        label: "Knowledge Base",     badge: false },
-  { path: "/analytics",   icon: BarChart2,       label: "Analytics",          badge: false },
-  { path: "/settings",    icon: Settings,        label: "Settings",           badge: false },
+const NAV_SECTIONS = [
+  {
+    label: "MONITOR",
+    items: [
+      { path: "/",          icon: LayoutDashboard, label: "Dashboard",          badge: false },
+      { path: "/queue",     icon: MessageSquare,   label: "Conversation Inbox", badge: true  },
+      { path: "/studio",    icon: Edit3,           label: "Reply Studio",       badge: false },
+    ],
+  },
+  {
+    label: "MANAGE",
+    items: [
+      { path: "/knowledge", icon: BookOpen,   label: "Knowledge Base", badge: false },
+      { path: "/analytics", icon: BarChart2,  label: "Analytics",      badge: false },
+      { path: "/settings",  icon: Settings,   label: "Settings",       badge: false },
+    ],
+  },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -34,67 +44,87 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      {/* Sidebar */}
+      {/* Sidebar — dark navy matching GlacialAI */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex flex-col w-64 bg-sidebar border-r border-sidebar-border transition-transform duration-200",
+          "fixed inset-y-0 left-0 z-40 flex flex-col w-56 transition-transform duration-200",
+          "bg-[hsl(222,20%,10%)] border-r border-[hsl(220,10%,18%)]",
           mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         )}
       >
         {/* Brand header */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-sidebar-border min-h-[60px]">
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-[hsl(220,10%,18%)] min-h-[60px]">
           <BrandLogo size={32} />
           <div className="flex-1 min-w-0">
-            <p className="font-bold text-sm truncate text-sidebar-foreground">{brand.name}</p>
-            <p className="text-xs text-muted-foreground truncate">{brand.tagline}</p>
+            <p className="font-bold text-sm truncate text-white">{brand.name}</p>
+            <p className="text-xs text-[hsl(220,8%,55%)] truncate">{brand.tagline}</p>
           </div>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 py-3 overflow-y-auto" data-testid="sidebar-nav">
-          {NAV.map(({ path, icon: Icon, label, badge }) => {
-            const active = location === path || (path !== "/" && location.startsWith(path));
-            return (
-              <Link key={path} href={path}
-                data-testid={`nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
-                className={cn(
-                  "flex items-center gap-3 px-4 py-2.5 mx-2 rounded-md text-sm transition-colors",
-                  active
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                )}
-                onClick={() => setMobileOpen(false)}
-              >
-                <Icon size={16} />
-                <span className="flex-1">{label}</span>
-                {badge && pendingCount > 0 && (
-                  <span className="text-xs bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 font-medium min-w-[20px] text-center">
-                    {pendingCount > 999 ? "999+" : pendingCount}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+        {/* Nav with section labels */}
+        <nav className="flex-1 py-4 overflow-y-auto" data-testid="sidebar-nav">
+          {NAV_SECTIONS.map(({ label, items }) => (
+            <div key={label} className="mb-4">
+              <p className="px-4 mb-1 text-[10px] font-semibold tracking-widest text-[hsl(220,8%,42%)] uppercase">
+                {label}
+              </p>
+              {items.map(({ path, icon: Icon, label: itemLabel, badge }) => {
+                const active = location === path || (path !== "/" && location.startsWith(path));
+                return (
+                  <Link
+                    key={path}
+                    href={path}
+                    data-testid={`nav-${itemLabel.toLowerCase().replace(/\s+/g, "-")}`}
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-2 text-sm transition-colors",
+                      active
+                        ? "bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))] font-medium border-r-2 border-[hsl(var(--primary))]"
+                        : "text-[hsl(220,8%,65%)] hover:bg-[hsl(220,10%,15%)] hover:text-white"
+                    )}
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    <Icon size={15} />
+                    <span className="flex-1">{itemLabel}</span>
+                    {badge && pendingCount > 0 && (
+                      <span className="text-xs bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 font-medium min-w-[20px] text-center">
+                        {pendingCount > 999 ? "999+" : pendingCount}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-sidebar-border space-y-2">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Wifi size={12} className="text-emerald-500" />
+        <div className="px-4 py-4 border-t border-[hsl(220,10%,18%)] space-y-2">
+          <div className="flex items-center gap-2 text-xs text-emerald-400">
+            <div className="w-2 h-2 rounded-full bg-emerald-400" />
             <span>Monitoring active</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-[hsl(220,8%,45%)]">
               {brand.monitoredBrands.length} brand{brand.monitoredBrands.length !== 1 ? "s" : ""} tracked
             </span>
             <button
               onClick={toggleTheme}
-              className="p-1.5 rounded hover:bg-sidebar-accent text-sidebar-foreground"
+              className="p-1.5 rounded hover:bg-[hsl(220,10%,15%)] text-[hsl(220,8%,55%)]"
               aria-label="Toggle theme"
               data-testid="button-toggle-theme"
             >
               {isDark ? <Sun size={14} /> : <Moon size={14} />}
             </button>
+          </div>
+          {/* User identity */}
+          <div className="flex items-center gap-2 pt-1">
+            <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center text-[10px] font-bold text-primary-foreground">
+              JL
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs text-white truncate">{brand.supportEmail?.split("@")[0] ?? "Admin"}</p>
+              <p className="text-[10px] text-[hsl(220,8%,45%)]">Admin</p>
+            </div>
           </div>
         </div>
       </aside>
@@ -108,20 +138,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Mobile topbar */}
-      <div className="md:hidden fixed top-0 inset-x-0 z-50 flex items-center gap-3 px-4 py-3 bg-sidebar border-b border-sidebar-border h-[60px]">
+      <div className="md:hidden fixed top-0 inset-x-0 z-50 flex items-center gap-3 px-4 py-3 bg-[hsl(222,20%,10%)] border-b border-[hsl(220,10%,18%)] h-[60px]">
         <button
           onClick={() => setMobileOpen(true)}
-          className="p-1 rounded text-sidebar-foreground"
+          className="p-1 rounded text-white"
           data-testid="button-mobile-menu"
         >
           <Menu size={20} />
         </button>
         <BrandLogo size={24} />
-        <span className="font-bold text-sm">{brand.name}</span>
+        <span className="font-bold text-sm text-white">{brand.name}</span>
       </div>
 
       {/* Main content */}
-      <main className="flex-1 md:ml-64 overflow-y-auto">
+      <main className="flex-1 md:ml-56 overflow-y-auto">
         <div className="pt-[60px] md:pt-0 min-h-screen">
           {children}
         </div>
