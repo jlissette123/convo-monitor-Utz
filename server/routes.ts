@@ -234,7 +234,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
       isRunning: schedulerState.isRunning,
       totalRuns: schedulerState.totalRuns,
       lastIngestedCount: schedulerState.lastIngestedCount,
-      enabled: process.env.NODE_ENV === "production" && !!process.env.TAVILY_API_KEY,
+      enabled: !!process.env.TAVILY_API_KEY,
     });
   });
 
