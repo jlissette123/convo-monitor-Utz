@@ -156,7 +156,7 @@ export function Dashboard() {
 
         {/* Live monitoring status bar — matches GlacialAI */}
         <div className="flex items-center gap-2 text-xs" data-testid="tavily-status-bar">
-          {tavilyStatus?.enabled ? (
+          {(tavilyStatus?.enabled || tavilyStatus?.totalRuns > 0) ? (
             <>
               <span className={`w-2 h-2 rounded-full shrink-0 ${tavilyStatus.isRunning ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
               <Wifi size={12} className="text-emerald-500" />

@@ -69,12 +69,12 @@ app.use((req, res, next) => {
 
   await registerRoutes(httpServer, app);
 
-  // Start Tavily 3-hour refresh scheduler (production only)
-  if (process.env.NODE_ENV === "production") {
+  // Start Tavily 3-hour refresh scheduler (runs whenever API key is set)
+  if (process.env.TAVILY_API_KEY) {
     startTavilyScheduler(
       brandCfg.monitoredBrands,
       brandCfg.monitoredKeywords ?? [],
-      process.env.TAVILY_API_KEY ?? "",
+      process.env.TAVILY_API_KEY,
     );
   }
 
