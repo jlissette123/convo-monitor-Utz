@@ -8,7 +8,14 @@ import type {
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface IStorage {
   // Conversations
-  getConversations(): Promise<Conversation[]>;
+  getConversations(filters?: {
+    status?: string;
+    platform?: string;
+    brand?: string;
+    priority?: string;
+    search?: string;
+    sentiment?: string;
+  }): Promise<Conversation[]>;
   getConversation(id: string): Promise<Conversation | undefined>;
   createConversation(c: InsertConversation): Promise<Conversation>;
   updateConversationStatus(id: string, status: string, assignedTo?: string): Promise<Conversation | undefined>;
@@ -297,7 +304,19 @@ export class MemoryStorage implements IStorage {
     return Math.random().toString(36).slice(2, 10);
   }
 
-  async getConversations() { return Array.from(this.conversations.values()); }
+  async getConversations(filters?: { status?: string; platform?: string; brand?: string; priority?: string; search?: string; sentiment?: string }) {
+    let all = Array.from(this.conversations.values());
+    if (filters?.status   && filters.status   !== "all") all = all.filter(c => c.status   === filters.status);
+    if (filters?.platform && filters.platform !== "all") all = all.filter(c => c.platform === filters.platform);
+    if (filters?.priority && filters.priority !== "all") all = all.filter(c => c.priority === filters.priority);
+    if (filters?.sentiment && filters.sentiment !== "all") all = all.filter(c => c.sentiment === filters.sentiment);
+    if (filters?.brand    && filters.brand    !== "all") all = all.filter(c => (c.brandMentions ?? []).includes(filters.brand!));
+    if (filters?.search) {
+      const q = filters.search.toLowerCase();
+      all = all.filter(c => c.content.toLowerCase().includes(q) || c.authorName.toLowerCase().includes(q));
+    }
+    return all;
+  }
   async getConversation(id: string) { return this.conversations.get(id); }
   async createConversation(c: InsertConversation): Promise<Conversation> {
     const full: Conversation = { ...c, createdAt: new Date().toISOString() } as Conversation;
@@ -385,6 +404,7 @@ export class MemoryStorage implements IStorage {
       inReview: convs.filter(c => c.status === "in_review").length,
       replied,
       dismissed,
+      negative: sentiment.negative,
       positiveRate,
       totalEngagement,
       sentimentBreakdown: sentiment,

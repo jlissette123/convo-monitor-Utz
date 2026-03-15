@@ -2,7 +2,7 @@ import { Link, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import {
   LayoutDashboard, MessageSquare, Edit3, BookOpen,
-  Bell, Settings, Sun, Moon, Menu, X, Wifi, BarChart2,
+  Bell, Settings, Sun, Moon, Menu, X, Wifi, BarChart2, TrendingDown,
 } from "lucide-react";
 import { useBrand } from "./BrandProvider";
 import { BrandLogo } from "./BrandLogo";
@@ -15,9 +15,10 @@ const NAV_SECTIONS = [
   {
     label: "MONITOR",
     items: [
-      { path: "/",          icon: LayoutDashboard, label: "Dashboard",          badge: false },
-      { path: "/queue",     icon: MessageSquare,   label: "Conversation Inbox", badge: true  },
-      { path: "/studio",    icon: Edit3,           label: "Reply Studio",       badge: false },
+      { path: "/",          icon: LayoutDashboard, label: "Dashboard",            badge: false, red: false },
+      { path: "/negative",  icon: TrendingDown,    label: "Negative Sentiment",   badge: true,  red: true  },
+      { path: "/queue",     icon: MessageSquare,   label: "Conversation Inbox",   badge: true,  red: false },
+      { path: "/studio",    icon: Edit3,           label: "Reply Studio",         badge: false, red: false },
     ],
   },
   {
@@ -35,12 +36,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [location] = useHashLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const { data: stats } = useQuery<{ pending: number }>({
+  const { data: stats } = useQuery<{ pending: number; negative?: number }>({
     queryKey: ["/api/stats"],
     queryFn: () => apiRequest("GET", "/api/stats").then(r => r.json()),
     refetchInterval: 30000,
   });
   const pendingCount = stats?.pending ?? 0;
+  const negativeCount = stats?.negative ?? 0;
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -68,8 +70,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <p className="px-4 mb-1 text-[10px] font-semibold tracking-widest text-[hsl(220,8%,42%)] uppercase">
                 {label}
               </p>
-              {items.map(({ path, icon: Icon, label: itemLabel, badge }) => {
+              {items.map(({ path, icon: Icon, label: itemLabel, badge, red }) => {
                 const active = location === path || (path !== "/" && location.startsWith(path));
+                const count = red ? negativeCount : pendingCount;
                 return (
                   <Link
                     key={path}
@@ -78,16 +81,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     className={cn(
                       "flex items-center gap-3 px-4 py-2 text-sm transition-colors",
                       active
-                        ? "bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))] font-medium border-r-2 border-[hsl(var(--primary))]"
-                        : "text-[hsl(220,8%,65%)] hover:bg-[hsl(220,10%,15%)] hover:text-white"
+                        ? red
+                          ? "bg-red-500/10 text-red-400 font-medium border-r-2 border-red-500"
+                          : "bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))] font-medium border-r-2 border-[hsl(var(--primary))]"
+                        : red
+                          ? "text-red-400 hover:bg-red-500/10 hover:text-red-400"
+                          : "text-[hsl(220,8%,65%)] hover:bg-[hsl(220,10%,15%)] hover:text-white"
                     )}
                     onClick={() => setMobileOpen(false)}
                   >
                     <Icon size={15} />
                     <span className="flex-1">{itemLabel}</span>
-                    {badge && pendingCount > 0 && (
-                      <span className="text-xs bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 font-medium min-w-[20px] text-center">
-                        {pendingCount > 999 ? "999+" : pendingCount}
+                    {badge && count > 0 && (
+                      <span className={cn(
+                        "text-xs rounded-full px-1.5 py-0.5 font-medium min-w-[20px] text-center",
+                        red
+                          ? "bg-red-500 text-white"
+                          : "bg-primary text-primary-foreground"
+                      )}>
+                        {count > 999 ? "999+" : count}
                       </span>
                     )}
                   </Link>

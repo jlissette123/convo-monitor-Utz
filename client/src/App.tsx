@@ -12,6 +12,7 @@ import { KnowledgeBase } from "@/pages/KnowledgeBase";
 import { Notifications } from "@/pages/Notifications";
 import { Analytics } from "@/pages/Analytics";
 import { Settings } from "@/pages/Settings";
+import { NegativeSentiment } from "@/pages/NegativeSentiment";
 import NotFound from "@/pages/not-found";
 import PerplexityAttribution from "@/components/PerplexityAttribution";
 
@@ -20,6 +21,7 @@ function AppRoutes() {
     <AppShell>
       <Switch>
         <Route path="/" component={Dashboard} />
+        <Route path="/negative" component={NegativeSentiment} />
         <Route path="/queue" component={Queue} />
         <Route path="/studio" component={ReplyStudio} />
         <Route path="/knowledge" component={KnowledgeBase} />

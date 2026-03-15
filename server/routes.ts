@@ -39,9 +39,10 @@ export function registerRoutes(httpServer: Server, app: Express) {
   });
 
   // ── Conversations ─────────────────────────────────────────────────────────
-  app.get("/api/conversations", async (_req, res) => {
+  app.get("/api/conversations", async (req, res) => {
     try {
-      const list = await getStorage().getConversations();
+      const { status, platform, brand, priority, search, sentiment } = req.query as Record<string, string>;
+      const list = await getStorage().getConversations({ status, platform, brand, priority, search, sentiment });
       res.json(list);
     } catch (e) {
       res.status(500).json({ error: String(e) });
