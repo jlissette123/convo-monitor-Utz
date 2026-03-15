@@ -135,51 +135,56 @@ export function Dashboard() {
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold">{brand.name} — Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Monitoring {brand.monitoredBrands.join(", ")}
-          </p>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-bold">{brand.name} — Dashboard</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Monitoring {brand.monitoredBrands.length} brand{brand.monitoredBrands.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs h-8 shrink-0"
+            data-testid="button-review-queue"
+            onClick={() => window.location.hash = "/queue"}
+          >
+            Review Queue
+          </Button>
         </div>
 
-        {/* Tavily refresh status pill */}
-        {tavilyStatus && (
-          <div className="flex items-center gap-3 shrink-0" data-testid="tavily-status-bar">
-            {tavilyStatus.enabled ? (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-card border border-card-border rounded-lg px-3 py-2">
-                <span className={`w-2 h-2 rounded-full shrink-0 ${tavilyStatus.isRunning ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
-                <Wifi size={12} className="text-emerald-500" />
-                <span className="font-medium">
-                  {tavilyStatus.isRunning
-                    ? "Scanning…"
-                    : tavilyStatus.lastRunAt
-                    ? `Last scan ${timeAgo(tavilyStatus.lastRunAt)}`
-                    : "Scheduled"}
-                </span>
-                {!tavilyStatus.isRunning && countdown && (
-                  <span className="text-muted-foreground">· Next in {countdown}</span>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-card border border-card-border rounded-lg px-3 py-2">
-                <WifiOff size={12} />
-                <span>Auto-scan offline</span>
-              </div>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-xs h-8"
-              data-testid="button-manual-refresh"
-              disabled={refreshMutation.isPending || tavilyStatus?.isRunning}
-              onClick={() => refreshMutation.mutate()}
-            >
-              <RefreshCw size={12} className={refreshMutation.isPending ? "animate-spin" : ""} />
-              {refreshMutation.isPending ? "Scanning…" : "Scan Now"}
-            </Button>
-          </div>
-        )}
+        {/* Live monitoring status bar — matches GlacialAI */}
+        <div className="flex items-center gap-2 text-xs" data-testid="tavily-status-bar">
+          {tavilyStatus?.enabled ? (
+            <>
+              <span className={`w-2 h-2 rounded-full shrink-0 ${tavilyStatus.isRunning ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
+              <Wifi size={12} className="text-emerald-500" />
+              <span className="font-medium text-foreground">
+                {tavilyStatus.isRunning ? "Scanning now…" : "Live monitoring active · every 3 hours"}
+              </span>
+              {!tavilyStatus.isRunning && countdown && (
+                <span className="text-muted-foreground">· Next scan in {countdown}</span>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-xs h-6 px-2 ml-1"
+                data-testid="button-manual-refresh"
+                disabled={refreshMutation.isPending || tavilyStatus?.isRunning}
+                onClick={() => refreshMutation.mutate()}
+              >
+                <RefreshCw size={11} className={refreshMutation.isPending ? "animate-spin mr-1" : "mr-1"} />
+                {refreshMutation.isPending ? "Scanning…" : "Scan Now"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <WifiOff size={12} className="text-muted-foreground" />
+              <span className="text-muted-foreground">Auto-scan offline — set NODE_ENV=production + TAVILY_API_KEY to enable</span>
+            </>
+          )}
+        </div>
       </div>
 
       {/* KPI Row */}

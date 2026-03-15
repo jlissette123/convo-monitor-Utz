@@ -372,13 +372,28 @@ export class MemoryStorage implements IStorage {
         brands[b] = (brands[b] ?? 0) + 1;
       }
     }
+    const total = convs.length;
+    const pending = convs.filter(c => c.status === "pending").length;
+    const replied = drafts.filter(d => d.status === "approved").length;
+    const dismissed = convs.filter(c => c.status === "dismissed").length;
+    const positiveRate = total > 0 ? Math.round((sentiment.positive / total) * 100) : 0;
+    const totalEngagement = convs.reduce((sum, c) => sum + (c.engagementCount ?? 0), 0);
     return {
-      totalCaptures: convs.length,
-      awaitingReview: convs.filter(c => c.status === "pending").length,
-      repliesSent: drafts.filter(d => d.status === "approved").length,
-      dismissed: convs.filter(c => c.status === "dismissed").length,
+      // GlacialAI-compatible shape
+      total,
+      pending,
+      inReview: convs.filter(c => c.status === "in_review").length,
+      replied,
+      dismissed,
+      positiveRate,
+      totalEngagement,
       sentimentBreakdown: sentiment,
       platformBreakdown: platforms,
+      brandBreakdown: brands,
+      // Legacy aliases (keep for backward compat)
+      totalCaptures: total,
+      awaitingReview: pending,
+      repliesSent: replied,
       brandMentions: brands,
     };
   }

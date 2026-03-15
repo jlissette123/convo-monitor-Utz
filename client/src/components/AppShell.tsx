@@ -2,26 +2,35 @@ import { Link, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import {
   LayoutDashboard, MessageSquare, Edit3, BookOpen,
-  Bell, Settings, Sun, Moon, Menu, X, Wifi,
+  Bell, Settings, Sun, Moon, Menu, X, Wifi, BarChart2,
 } from "lucide-react";
 import { useBrand } from "./BrandProvider";
 import { BrandLogo } from "./BrandLogo";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { path: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { path: "/queue",   icon: MessageSquare, label: "Conversation Queue" },
-  { path: "/studio",  icon: Edit3,         label: "Reply Studio" },
-  { path: "/knowledge", icon: BookOpen,    label: "Knowledge Base" },
-  { path: "/notifications", icon: Bell,    label: "Notifications" },
-  { path: "/settings", icon: Settings,     label: "Settings" },
+  { path: "/",            icon: LayoutDashboard, label: "Dashboard",          badge: false },
+  { path: "/queue",       icon: MessageSquare,   label: "Conversation Inbox", badge: true  },
+  { path: "/studio",      icon: Edit3,           label: "Reply Studio",       badge: false },
+  { path: "/knowledge",   icon: BookOpen,        label: "Knowledge Base",     badge: false },
+  { path: "/analytics",   icon: BarChart2,       label: "Analytics",          badge: false },
+  { path: "/settings",    icon: Settings,        label: "Settings",           badge: false },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { brand, isDark, toggleTheme } = useBrand();
   const [location] = useHashLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const { data: stats } = useQuery<{ pending: number }>({
+    queryKey: ["/api/stats"],
+    queryFn: () => apiRequest("GET", "/api/stats").then(r => r.json()),
+    refetchInterval: 30000,
+  });
+  const pendingCount = stats?.pending ?? 0;
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -43,7 +52,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Nav */}
         <nav className="flex-1 py-3 overflow-y-auto" data-testid="sidebar-nav">
-          {NAV.map(({ path, icon: Icon, label }) => {
+          {NAV.map(({ path, icon: Icon, label, badge }) => {
             const active = location === path || (path !== "/" && location.startsWith(path));
             return (
               <Link key={path} href={path}
@@ -57,7 +66,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 onClick={() => setMobileOpen(false)}
               >
                 <Icon size={16} />
-                {label}
+                <span className="flex-1">{label}</span>
+                {badge && pendingCount > 0 && (
+                  <span className="text-xs bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 font-medium min-w-[20px] text-center">
+                    {pendingCount > 999 ? "999+" : pendingCount}
+                  </span>
+                )}
               </Link>
             );
           })}
