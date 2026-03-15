@@ -6,7 +6,19 @@
  * rebuild.
  *
  * This module is the frontend mirror of shared/brand-config.ts.
+ *
+ * Default colors: teal H183 S98 L22 (light) / H188 S35 L47 (dark).
+ * Color env vars (VITE_BRAND_PRIMARY_H/S/L, VITE_BRAND_DARK_PRIMARY_H/S/L)
+ * are OPTIONAL — omit them to use the teal defaults.
  */
+
+/** Semantic build version — bump when forcing a cache-bust deploy. */
+export const BUILD_VERSION = "1.1.0";
+
+/** Default teal primary color (light mode). Exported for reference/testing. */
+export const DEFAULT_PRIMARY = { h: 183, s: 98, l: 22 } as const;
+/** Default teal primary color (dark mode). */
+export const DEFAULT_DARK_PRIMARY = { h: 188, s: 35, l: 47 } as const;
 
 export interface BrandConfig {
   name: string;

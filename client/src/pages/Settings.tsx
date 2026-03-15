@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Settings2, Users, Tag, Palette, ExternalLink, Code, Twitter, Linkedin, Globe, Shield, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { BUILD_VERSION } from "@/lib/brand";
 
 function Section({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
   return (
@@ -206,6 +207,9 @@ export function Settings() {
           </div>
         </div>
       </Section>
+
+      {/* Platform version footer */}
+      <p className="text-xs text-muted-foreground text-center pb-4">Platform v{BUILD_VERSION}</p>
     </div>
   );
 }
