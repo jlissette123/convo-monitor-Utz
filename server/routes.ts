@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { getStorage } from "./storage";
 import { getBrandConfigFromProcess } from "@shared/brand-config";
-import { generateAIDraft } from "./tavily";
+import { generateAIDraft, schedulerState, triggerManualRefresh } from "./tavily";
 
 export function registerRoutes(httpServer: Server, app: Express) {
   const cfg = getBrandConfigFromProcess();
