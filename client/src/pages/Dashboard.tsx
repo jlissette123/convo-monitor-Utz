@@ -1,15 +1,45 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useBrand } from "@/components/BrandProvider";
-import { MessageSquare, Clock, CheckCircle, XCircle, TrendingUp, ArrowRight } from "lucide-react";
+import { MessageSquare, Clock, CheckCircle, XCircle, TrendingUp, ArrowRight, RefreshCw, Wifi, WifiOff } from "lucide-react";
 import { Link } from "wouter";
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { ActivityEntry, Conversation } from "@shared/schema";
 import { cn } from "@/lib/utils";
+import type { ActivityEntry, Conversation } from "@shared/schema";
+
+interface TavilyStatus {
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  isRunning: boolean;
+  totalRuns: number;
+  lastIngestedCount: number;
+  enabled: boolean;
+}
+
+function useCountdown(targetIso: string | null): string {
+  const [label, setLabel] = useState("");
+  useEffect(() => {
+    if (!targetIso) { setLabel(""); return; }
+    function tick() {
+      const diff = new Date(targetIso!).getTime() - Date.now();
+      if (diff <= 0) { setLabel("any moment"); return; }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setLabel(h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`);
+    }
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [targetIso]);
+  return label;
+}
 
 interface Stats {
   totalCaptures: number;
@@ -54,6 +84,7 @@ function timeAgo(ts: string) {
 
 export function Dashboard() {
   const { brand } = useBrand();
+  const qc = useQueryClient();
 
   const { data: stats, isLoading: statsLoading } = useQuery<Stats>({
     queryKey: ["/api/stats"],
@@ -69,6 +100,24 @@ export function Dashboard() {
     queryKey: ["/api/activity"],
     queryFn: () => apiRequest("GET", "/api/activity").then(r => r.json()),
   });
+
+  const { data: tavilyStatus } = useQuery<TavilyStatus>({
+    queryKey: ["/api/tavily/status"],
+    queryFn: () => apiRequest("GET", "/api/tavily/status").then(r => r.json()),
+    refetchInterval: 15000,
+  });
+
+  const refreshMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/tavily/refresh").then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/conversations"] });
+      qc.invalidateQueries({ queryKey: ["/api/stats"] });
+      qc.invalidateQueries({ queryKey: ["/api/activity"] });
+      qc.invalidateQueries({ queryKey: ["/api/tavily/status"] });
+    },
+  });
+
+  const countdown = useCountdown(tavilyStatus?.nextRunAt ?? null);
 
   const highPriority = conversations?.filter(c => c.priority === "high" && c.status === "pending") ?? [];
   const sentimentData = stats ? [
@@ -86,11 +135,51 @@ export function Dashboard() {
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold">{brand.name} — Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Monitoring {brand.monitoredBrands.join(", ")}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold">{brand.name} — Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Monitoring {brand.monitoredBrands.join(", ")}
+          </p>
+        </div>
+
+        {/* Tavily refresh status pill */}
+        {tavilyStatus && (
+          <div className="flex items-center gap-3 shrink-0" data-testid="tavily-status-bar">
+            {tavilyStatus.enabled ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-card border border-card-border rounded-lg px-3 py-2">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${tavilyStatus.isRunning ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
+                <Wifi size={12} className="text-emerald-500" />
+                <span className="font-medium">
+                  {tavilyStatus.isRunning
+                    ? "Scanning…"
+                    : tavilyStatus.lastRunAt
+                    ? `Last scan ${timeAgo(tavilyStatus.lastRunAt)}`
+                    : "Scheduled"}
+                </span>
+                {!tavilyStatus.isRunning && countdown && (
+                  <span className="text-muted-foreground">· Next in {countdown}</span>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-card border border-card-border rounded-lg px-3 py-2">
+                <WifiOff size={12} />
+                <span>Auto-scan offline</span>
+              </div>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs h-8"
+              data-testid="button-manual-refresh"
+              disabled={refreshMutation.isPending || tavilyStatus?.isRunning}
+              onClick={() => refreshMutation.mutate()}
+            >
+              <RefreshCw size={12} className={refreshMutation.isPending ? "animate-spin" : ""} />
+              {refreshMutation.isPending ? "Scanning…" : "Scan Now"}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* KPI Row */}

@@ -2,6 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { getStorage } from "./storage";
 import { getBrandConfigFromProcess } from "@shared/brand-config";
+import { generateAIDraft } from "./tavily";
 
 export function registerRoutes(httpServer: Server, app: Express) {
   const cfg = getBrandConfigFromProcess();
@@ -141,19 +142,24 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // Generate a new AI draft reply (stubbed — returns a deterministic template)
+  // Generate a new AI draft reply using Tavily
   app.post("/api/drafts/generate", async (req, res) => {
     try {
       const { conversationId, conversationContent } = req.body as {
         conversationId: string;
         conversationContent: string;
       };
-      // In production this would call an LLM API.
-      // For the white-label template we return a structured stub.
-      const stubDraft = await getStorage().createDraftReply({
+      const apiKey = process.env.TAVILY_API_KEY ?? "";
+      const content = await generateAIDraft(
+        conversationContent,
+        cfg.name,
+        cfg.supportEmail ?? "team@example.com",
+        apiKey,
+      );
+      const draft = await getStorage().createDraftReply({
         id: `d-${Date.now()}`,
         conversationId,
-        content: `Thank you for sharing this. We take every piece of feedback seriously and are always looking for ways to improve. If you'd like to discuss this further, please reach out to ${cfg.supportEmail}.`,
+        content,
         status: "awaiting",
         reviewedAt: null,
         reviewedBy: null,
@@ -166,7 +172,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
         userId: null,
         timestamp: new Date().toISOString(),
       });
-      res.json(stubDraft);
+      res.json(draft);
     } catch (e) {
       res.status(500).json({ error: String(e) });
     }
@@ -215,6 +221,38 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const ok = await getStorage().deleteKnowledgeEntry(req.params.id);
       if (!ok) return res.status(404).json({ error: "Not found" });
       res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  // ── Tavily Scheduler ─────────────────────────────────────────────────────
+  app.get("/api/tavily/status", (_req, res) => {
+    res.json({
+      lastRunAt: schedulerState.lastRunAt,
+      nextRunAt: schedulerState.nextRunAt,
+      isRunning: schedulerState.isRunning,
+      totalRuns: schedulerState.totalRuns,
+      lastIngestedCount: schedulerState.lastIngestedCount,
+      enabled: process.env.NODE_ENV === "production" && !!process.env.TAVILY_API_KEY,
+    });
+  });
+
+  app.post("/api/tavily/refresh", async (_req, res) => {
+    try {
+      if (schedulerState.isRunning) {
+        return res.json({ message: "Refresh already in progress", ingested: 0 });
+      }
+      const apiKey = process.env.TAVILY_API_KEY ?? "";
+      if (!apiKey) {
+        return res.status(400).json({ error: "TAVILY_API_KEY not set" });
+      }
+      const result = await triggerManualRefresh(
+        cfg.monitoredBrands,
+        cfg.monitoredKeywords ?? [],
+        apiKey,
+      );
+      res.json({ message: `Refresh complete — ${result.ingested} new captures`, ...result });
     } catch (e) {
       res.status(500).json({ error: String(e) });
     }

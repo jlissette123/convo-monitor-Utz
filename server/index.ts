@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initStorage } from "./storage";
 import { getBrandConfigFromProcess } from "@shared/brand-config";
+import { startTavilyScheduler } from "./tavily";
 
 const app = express();
 const httpServer = createServer(app);
@@ -67,6 +68,15 @@ app.use((req, res, next) => {
   initStorage(brandCfg.monitoredBrands);
 
   await registerRoutes(httpServer, app);
+
+  // Start Tavily 3-hour refresh scheduler (production only)
+  if (process.env.NODE_ENV === "production") {
+    startTavilyScheduler(
+      brandCfg.monitoredBrands,
+      brandCfg.monitoredKeywords ?? [],
+      process.env.TAVILY_API_KEY ?? "",
+    );
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
