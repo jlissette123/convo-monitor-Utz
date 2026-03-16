@@ -2,7 +2,7 @@ import { Link, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import {
   LayoutDashboard, MessageSquare, Edit3, BookOpen,
-  Bell, Settings, Sun, Moon, Menu, X, Wifi, BarChart2, TrendingDown,
+  Bell, Settings, Sun, Moon, Menu, X, Wifi, BarChart2, TrendingDown, Users,
 } from "lucide-react";
 import { useBrand } from "./BrandProvider";
 import { BrandLogo } from "./BrandLogo";
@@ -18,6 +18,7 @@ const NAV_SECTIONS = [
       { path: "/",          icon: LayoutDashboard, label: "Dashboard",            badge: false, red: false },
       { path: "/negative",  icon: TrendingDown,    label: "Negative Sentiment",   badge: true,  red: true  },
       { path: "/queue",     icon: MessageSquare,   label: "Conversation Inbox",   badge: true,  red: false },
+      { path: "/culture",   icon: Users,           label: "Culture Monitor",       badge: true,  red: false },
       { path: "/studio",    icon: Edit3,           label: "Reply Studio",         badge: false, red: false },
     ],
   },
@@ -41,8 +42,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     queryFn: () => apiRequest("GET", "/api/stats").then(r => r.json()),
     refetchInterval: 30000,
   });
-  const pendingCount = stats?.pending ?? 0;
+  const { data: cultureStats } = useQuery<{ pending: number }>({
+    queryKey: ["/api/culture-reviews/stats"],
+    queryFn: () => apiRequest("GET", "/api/culture-reviews/stats").then(r => r.json()),
+    refetchInterval: 30000,
+  });
+  const pendingCount  = stats?.pending ?? 0;
   const negativeCount = stats?.negative ?? 0;
+  const cultureCount  = cultureStats?.pending ?? 0;
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -72,7 +79,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </p>
               {items.map(({ path, icon: Icon, label: itemLabel, badge, red }) => {
                 const active = location === path || (path !== "/" && location.startsWith(path));
-                const count = red ? negativeCount : pendingCount;
+                const count = red ? negativeCount : path === "/culture" ? cultureCount : pendingCount;
                 return (
                   <Link
                     key={path}

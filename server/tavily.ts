@@ -271,6 +271,118 @@ export function startTavilyScheduler(
   log(`Tavily scheduler started — refreshing every 3 hours`, "tavily");
 }
 
+// ── Culture Monitor Scan ──────────────────────────────────────────────────
+// Searches Glassdoor, Indeed, and Comparably for employer reviews.
+// Results are stored in the separate cultureReviews store — never in conversations.
+// Negative results are flagged for the Negative Sentiment inbox via the frontend query.
+
+const CULTURE_SOURCES: Array<{
+  source: "glassdoor" | "indeed" | "comparably";
+  domain: string;
+  queryTemplate: (brand: string) => string;
+}> = [
+  {
+    source: "glassdoor",
+    domain: "glassdoor.com",
+    queryTemplate: (b) => `"${b}" employee reviews site:glassdoor.com`,
+  },
+  {
+    source: "indeed",
+    domain: "indeed.com",
+    queryTemplate: (b) => `"${b}" employee reviews site:indeed.com`,
+  },
+  {
+    source: "comparably",
+    domain: "comparably.com",
+    queryTemplate: (b) => `"${b}" company culture CEO approval site:comparably.com`,
+  },
+];
+
+export async function runCultureScan(
+  brandName: string,
+  apiKey: string,
+): Promise<{ ingested: number }> {
+  if (!apiKey) {
+    log("TAVILY_API_KEY not set — skipping culture scan", "tavily");
+    return { ingested: 0 };
+  }
+
+  const storage = getStorage();
+  const existing = await storage.getCultureReviews();
+  const existingUrls = new Set(existing.map(r => r.url));
+  let ingested = 0;
+
+  for (const src of CULTURE_SOURCES) {
+    const query = src.queryTemplate(brandName);
+    try {
+      const res = await fetch(TAVILY_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: apiKey,
+          query,
+          search_depth: "basic",
+          include_answer: false,
+          include_raw_content: false,
+          max_results: 5,
+          include_domains: [src.domain],
+        }),
+      });
+
+      if (!res.ok) {
+        log(`Culture scan failed for ${src.source}: ${res.status}`, "tavily");
+        continue;
+      }
+
+      const data = await res.json() as { results: Array<{ url: string; title: string; content: string; score: number }> };
+      const results = data.results ?? [];
+
+      for (const result of results) {
+        if (existingUrls.has(result.url)) continue;
+
+        const text = `${result.title} ${result.content}`.slice(0, 800);
+        const { sentiment, score } = scoreSentiment(text);
+        const priority = sentiment === "negative" && score < 30 ? "high"
+          : sentiment === "negative" ? "medium"
+          : sentiment === "positive" && score > 75 ? "low"
+          : "medium";
+
+        const id = `cr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        await storage.createCultureReview({
+          id,
+          source: src.source,
+          url: result.url,
+          title: result.title.slice(0, 120),
+          content: result.content.slice(0, 500),
+          sentiment,
+          sentimentScore: score,
+          priority,
+          status: "pending",
+        });
+
+        ingested++;
+        existingUrls.add(result.url);
+        log(`Culture review ingested from ${src.source}: ${result.url}`, "tavily");
+      }
+    } catch (err) {
+      log(`Culture scan error for ${src.source}: ${err}`, "tavily");
+    }
+  }
+
+  if (ingested > 0) {
+    await storage.addActivityEntry({
+      type: "capture",
+      description: `${ingested} new culture review${ingested > 1 ? "s" : ""} captured from Glassdoor, Indeed & Comparably`,
+      conversationId: null,
+      userId: null,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  log(`Culture scan complete — ${ingested} new reviews ingested`, "tavily");
+  return { ingested };
+}
+
 // ── Manual trigger ─────────────────────────────────────────────────────────
 export async function triggerManualRefresh(
   brands: string[],

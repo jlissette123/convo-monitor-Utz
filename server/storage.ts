@@ -5,6 +5,22 @@ import type {
   ActivityEntry, TeamMember,
 } from "@shared/schema";
 
+// ── Culture Review type (separate from Conversation — never appears in main inbox) ──
+export interface CultureReview {
+  id: string;
+  source: "glassdoor" | "indeed" | "comparably";  // which employer review site
+  url: string;
+  title: string;          // review headline / page title from Tavily
+  content: string;        // review snippet
+  sentiment: "positive" | "neutral" | "negative";
+  sentimentScore: number; // 0-100
+  priority: "high" | "medium" | "low";
+  status: "pending" | "in_review" | "noted" | "dismissed";
+  capturedAt: string;     // ISO timestamp
+}
+
+export interface InsertCultureReview extends Omit<CultureReview, "capturedAt"> {}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface IStorage {
   // Conversations
@@ -39,6 +55,13 @@ export interface IStorage {
 
   // Team
   getTeamMembers(): Promise<TeamMember[]>;
+
+  // Culture Monitor
+  getCultureReviews(filters?: { status?: string; source?: string; sentiment?: string }): Promise<CultureReview[]>;
+  getCultureReview(id: string): Promise<CultureReview | undefined>;
+  createCultureReview(r: InsertCultureReview): Promise<CultureReview>;
+  updateCultureReviewStatus(id: string, status: string): Promise<CultureReview | undefined>;
+  getCultureStats(): Promise<{ total: number; negative: number; pending: number; sentimentBreakdown: { positive: number; neutral: number; negative: number }; sourceBreakdown: Record<string, number> }>;
 
   // Stats
   getStats(): Promise<{
@@ -265,12 +288,79 @@ function makeSeedKnowledge(brands: string[]): KnowledgeEntry[] {
 }
 
 // ── In-Memory Storage ─────────────────────────────────────────────────────────
+function makeSeedCultureReviews(brandName: string): CultureReview[] {
+  const b = brandName || "Brand A";
+  return [
+    {
+      id: "cr1",
+      source: "glassdoor",
+      url: "https://www.glassdoor.com/Reviews/review-1.htm",
+      title: `${b} - Great place to work if you love snacks`,
+      content: `I've worked at ${b} for 3 years. Management is supportive, benefits are solid, and there's real room for growth in the operations division. Recommend.`,
+      sentiment: "positive",
+      sentimentScore: 82,
+      priority: "low",
+      status: "pending",
+      capturedAt: new Date(Date.now() - 4 * 3600000).toISOString(),
+    },
+    {
+      id: "cr2",
+      source: "indeed",
+      url: "https://www.indeed.com/cmp/review-2",
+      title: `${b} - Warehouse conditions need improvement`,
+      content: `Pay is okay but the warehouse in the summer is brutal. No AC in the packing area. HR has been promising fixes for two years. Turnover is really high on the floor because of it.`,
+      sentiment: "negative",
+      sentimentScore: 22,
+      priority: "high",
+      status: "pending",
+      capturedAt: new Date(Date.now() - 8 * 3600000).toISOString(),
+    },
+    {
+      id: "cr3",
+      source: "comparably",
+      url: "https://www.comparably.com/companies/review-3",
+      title: `${b} - CEO approval and culture scores`,
+      content: `Culture score: B+. CEO approval: 71%. Employees rate work-life balance as above average for CPG industry. Compensation rated average. Leadership transparency could improve.`,
+      sentiment: "neutral",
+      sentimentScore: 55,
+      priority: "medium",
+      status: "pending",
+      capturedAt: new Date(Date.now() - 12 * 3600000).toISOString(),
+    },
+    {
+      id: "cr4",
+      source: "glassdoor",
+      url: "https://www.glassdoor.com/Reviews/review-4.htm",
+      title: `${b} - Poor communication from upper management`,
+      content: `Decisions made at the top with no explanation to middle management or staff. Found out about a major restructuring through the rumor mill, not from HR. Morale is low.`,
+      sentiment: "negative",
+      sentimentScore: 18,
+      priority: "high",
+      status: "pending",
+      capturedAt: new Date(Date.now() - 20 * 3600000).toISOString(),
+    },
+    {
+      id: "cr5",
+      source: "indeed",
+      url: "https://www.indeed.com/cmp/review-5",
+      title: `${b} - Solid entry-level brand, learned a lot`,
+      content: `Good training programs for new hires. The brand is strong enough that it looks great on a resume. Moved on after 2 years for better pay but no hard feelings.`,
+      sentiment: "positive",
+      sentimentScore: 74,
+      priority: "low",
+      status: "noted",
+      capturedAt: new Date(Date.now() - 30 * 3600000).toISOString(),
+    },
+  ];
+}
+
 export class MemoryStorage implements IStorage {
   private conversations: Map<string, Conversation> = new Map();
   private drafts: Map<string, DraftReply> = new Map();
   private knowledge: Map<string, KnowledgeEntry> = new Map();
   private activity: ActivityEntry[] = [];
   private team: TeamMember[] = [];
+  private cultureReviews: Map<string, CultureReview> = new Map();
 
   constructor(brands: string[] = []) {
     // Seed conversations
@@ -292,6 +382,10 @@ export class MemoryStorage implements IStorage {
       { id: "a3", type: "reply", description: "Draft reply approved for c1", conversationId: "c1", userId: "reviewer-1", timestamp: new Date(Date.now() - 55 * 60000).toISOString() },
       { id: "a4", type: "knowledge_update", description: "Knowledge entry 'Product Line & Flavors' updated", conversationId: null, userId: "admin-1", timestamp: new Date(Date.now() - 2 * 3600000).toISOString() },
     ];
+    // Seed culture reviews
+    for (const r of makeSeedCultureReviews(brands[0] ?? "Brand A")) {
+      this.cultureReviews.set(r.id, r);
+    }
     // Seed team
     this.team = [
       { id: "admin-1", name: "Admin User", email: "admin@brand.com", role: "admin", avatarInitials: "AU", isActive: true },
@@ -377,6 +471,44 @@ export class MemoryStorage implements IStorage {
   }
 
   async getTeamMembers() { return [...this.team]; }
+
+  // ── Culture Reviews ───────────────────────────────────────────────────
+  async getCultureReviews(filters?: { status?: string; source?: string; sentiment?: string }) {
+    let all = Array.from(this.cultureReviews.values());
+    if (filters?.status    && filters.status    !== "all") all = all.filter(r => r.status    === filters.status);
+    if (filters?.source    && filters.source    !== "all") all = all.filter(r => r.source    === filters.source);
+    if (filters?.sentiment && filters.sentiment !== "all") all = all.filter(r => r.sentiment === filters.sentiment);
+    return all.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
+  }
+  async getCultureReview(id: string) { return this.cultureReviews.get(id); }
+  async createCultureReview(r: InsertCultureReview): Promise<CultureReview> {
+    const full: CultureReview = { ...r, capturedAt: new Date().toISOString() };
+    this.cultureReviews.set(full.id, full);
+    return full;
+  }
+  async updateCultureReviewStatus(id: string, status: string) {
+    const r = this.cultureReviews.get(id);
+    if (!r) return undefined;
+    const updated = { ...r, status: status as CultureReview["status"] };
+    this.cultureReviews.set(id, updated);
+    return updated;
+  }
+  async getCultureStats() {
+    const all = Array.from(this.cultureReviews.values());
+    const sentiment = { positive: 0, neutral: 0, negative: 0 };
+    const sources: Record<string, number> = {};
+    for (const r of all) {
+      sentiment[r.sentiment]++;
+      sources[r.source] = (sources[r.source] ?? 0) + 1;
+    }
+    return {
+      total: all.length,
+      negative: sentiment.negative,
+      pending: all.filter(r => r.status === "pending").length,
+      sentimentBreakdown: sentiment,
+      sourceBreakdown: sources,
+    };
+  }
 
   async getStats() {
     const convs = Array.from(this.conversations.values());

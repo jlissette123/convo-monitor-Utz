@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { getStorage } from "./storage";
 import { getBrandConfigFromProcess } from "@shared/brand-config";
-import { generateAIDraft, schedulerState, triggerManualRefresh } from "./tavily";
+import { generateAIDraft, schedulerState, triggerManualRefresh, runCultureScan } from "./tavily";
 
 export function registerRoutes(httpServer: Server, app: Express) {
   const cfg = getBrandConfigFromProcess();
@@ -254,6 +254,47 @@ export function registerRoutes(httpServer: Server, app: Express) {
         apiKey,
       );
       res.json({ message: `Refresh complete — ${result.ingested} new captures`, ...result });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  // ── Culture Monitor ────────────────────────────────────────────────────────
+  app.get("/api/culture-reviews", async (req, res) => {
+    try {
+      const { status, source, sentiment } = req.query as Record<string, string>;
+      const list = await getStorage().getCultureReviews({ status, source, sentiment });
+      res.json(list);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.get("/api/culture-reviews/stats", async (_req, res) => {
+    try {
+      res.json(await getStorage().getCultureStats());
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.patch("/api/culture-reviews/:id/status", async (req, res) => {
+    try {
+      const { status } = req.body as { status: string };
+      const updated = await getStorage().updateCultureReviewStatus(req.params.id, status);
+      if (!updated) return res.status(404).json({ error: "Not found" });
+      res.json(updated);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.post("/api/culture-reviews/scan", async (_req, res) => {
+    try {
+      const apiKey = process.env.TAVILY_API_KEY ?? "";
+      if (!apiKey) return res.status(400).json({ error: "TAVILY_API_KEY not set" });
+      const result = await runCultureScan(cfg.name, apiKey);
+      res.json({ message: `Culture scan complete — ${result.ingested} new reviews`, ...result });
     } catch (e) {
       res.status(500).json({ error: String(e) });
     }
