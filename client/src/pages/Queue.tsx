@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Twitter, Linkedin, Globe, BookOpen, ExternalLink,
-  Filter, Search, ChevronRight, Sparkles, Eye,
+  Filter, Search, ChevronRight, Sparkles, Eye, ArrowUpDown,
 } from "lucide-react";
 import { FaReddit } from "react-icons/fa";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,7 @@ export function Queue() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState("newest");
   const { toast } = useToast();
 
   const { data: conversations, isLoading } = useQuery<Conversation[]>({
@@ -86,12 +87,27 @@ export function Queue() {
     },
   });
 
-  const filtered = (conversations ?? []).filter(c => {
-    if (statusFilter !== "all" && c.status !== statusFilter) return false;
-    if (platformFilter !== "all" && c.platform !== platformFilter) return false;
-    if (searchQuery && !c.content.toLowerCase().includes(searchQuery.toLowerCase()) && !c.authorName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    return true;
-  });
+  const SENTIMENT_RANK: Record<string, number> = { negative: 0, neutral: 1, positive: 2 };
+
+  const filtered = (conversations ?? [])
+    .filter(c => {
+      if (statusFilter !== "all" && c.status !== statusFilter) return false;
+      if (platformFilter !== "all" && c.platform !== platformFilter) return false;
+      if (searchQuery && !c.content.toLowerCase().includes(searchQuery.toLowerCase()) && !c.authorName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortOrder === "newest") return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+      if (sortOrder === "oldest") return new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime();
+      if (sortOrder === "sentiment") {
+        const rankA = SENTIMENT_RANK[a.sentiment] ?? 1;
+        const rankB = SENTIMENT_RANK[b.sentiment] ?? 1;
+        if (rankA !== rankB) return rankA - rankB;
+        // secondary sort: newest within same sentiment
+        return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+      }
+      return 0;
+    });
 
   const selected = filtered.find(c => c.id === selectedId) ?? conversations?.find(c => c.id === selectedId);
 
@@ -134,6 +150,19 @@ export function Queue() {
                 <SelectItem value="reddit">Reddit</SelectItem>
                 <SelectItem value="linkedin">LinkedIn</SelectItem>
                 <SelectItem value="blog">Blog</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <ArrowUpDown size={11} className="text-muted-foreground shrink-0" />
+            <Select value={sortOrder} onValueChange={setSortOrder}>
+              <SelectTrigger className="h-8 text-xs flex-1" data-testid="select-sort-order">
+                <SelectValue placeholder="Sort" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest first</SelectItem>
+                <SelectItem value="oldest">Oldest first</SelectItem>
+                <SelectItem value="sentiment">Negative first</SelectItem>
               </SelectContent>
             </Select>
           </div>
