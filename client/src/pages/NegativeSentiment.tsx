@@ -8,12 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Twitter, Linkedin, Globe, BookOpen, ExternalLink,
-  TrendingDown, ChevronRight, Sparkles, Eye, AlertTriangle, Forward,
+  TrendingDown, ChevronRight, Sparkles, Eye, AlertTriangle,
 } from "lucide-react";
 import { FaReddit } from "react-icons/fa";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
-import { ForwardModal } from "@/components/ForwardModal";
 
 function PlatformIcon({ platform }: { platform: string }) {
   const cls = `platform-${platform}`;
@@ -42,7 +41,6 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function NegativeSentiment() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [forwardingId, setForwardingId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const { data: conversations, isLoading } = useQuery<Conversation[]>({
@@ -295,14 +293,6 @@ export function NegativeSentiment() {
                 <Sparkles size={14} className="mr-1.5" />
                 {generateDraft.isPending ? "Generating…" : "Generate Draft Reply"}
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setForwardingId(selected.id)}
-                data-testid="button-neg-forward"
-              >
-                <Forward size={14} className="mr-1.5" /> Forward
-              </Button>
               {selected.status !== "dismissed" && (
                 <Button
                   size="sm"
@@ -320,16 +310,6 @@ export function NegativeSentiment() {
         )}
       </div>
 
-      {/* Forward modal */}
-      {forwardingId && selected && (
-        <ForwardModal
-          conversationId={forwardingId}
-          authorName={selected.authorName}
-          platform={selected.platform}
-          sentiment={selected.sentiment}
-          onClose={() => setForwardingId(null)}
-        />
-      )}
     </div>
   );
 }
