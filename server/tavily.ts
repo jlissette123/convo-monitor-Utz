@@ -182,6 +182,76 @@ async function scoreSentiment(
   return scoreSentimentHeuristic(text);
 }
 
+// ── Domain blocklist ──────────────────────────────────────────────────────────────────
+// Retail, e-commerce, and marketplace domains that produce product listing
+// pages — not brand conversations. These are noise and must be excluded.
+const BLOCKED_DOMAINS = [
+  // Major retailers
+  "amazon.com", "amazon.co.uk", "amazon.ca",
+  "walmart.com",
+  "target.com",
+  "samsclub.com",
+  "costco.com",
+  "kroger.com",
+  "safeway.com",
+  "albertsons.com",
+  "publix.com",
+  "heb.com",
+  "wegmans.com",
+  "wholefoodsmarket.com",
+  "cvs.com",
+  "walgreens.com",
+  "riteaid.com",
+  "dollartree.com",
+  "dollargeneral.com",
+  "familydollar.com",
+  "sears.com",
+  "kmart.com",
+  // Online marketplaces
+  "ebay.com",
+  "etsy.com",
+  "instacart.com",
+  "shipt.com",
+  "doordash.com",
+  "grubhub.com",
+  "ubereats.com",
+  // Price comparison / shopping aggregators
+  "google.com/shopping",
+  "shopping.google.com",
+  "bizrate.com",
+  "nextag.com",
+  "pricespy.com",
+  "camelcamelcamel.com",
+  "slickdeals.net",
+  // Nutrition / product data aggregators (not brand conversations)
+  "nutritionix.com",
+  "fatsecret.com",
+  "myfitnesspal.com",
+  "calorieking.com",
+  "eatthismuch.com",
+];
+
+/**
+ * Returns true if the URL should be blocked (retail/e-commerce/noise).
+ * Matched against hostname to avoid false positives on blog posts that
+ * merely mention a retailer name.
+ */
+function isBlockedDomain(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, "");
+    return BLOCKED_DOMAINS.some(blocked => {
+      // Handle path-based rules like "google.com/shopping"
+      if (blocked.includes("/")) {
+        return url.includes(blocked);
+      }
+      // Exact hostname match or subdomain match
+      return hostname === blocked || hostname.endsWith("." + blocked);
+    });
+  } catch {
+    return false;
+  }
+}
+
 function detectPlatform(url: string): string {
   if (url.includes("twitter.com") || url.includes("x.com")) return "twitter";
   if (url.includes("reddit.com")) return "reddit";
@@ -247,6 +317,10 @@ async function ingestResults(
 
   for (const result of results) {
     if (existingUrls.has(result.url)) continue;
+    if (isBlockedDomain(result.url)) {
+      log(`Skipped blocked domain: ${result.url}`, "ingest");
+      continue;
+    }
 
     const text = `${result.title} ${result.content}`.slice(0, 800);
     const { sentiment, score } = await scoreSentiment(text);
