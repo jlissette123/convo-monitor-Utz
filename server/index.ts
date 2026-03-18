@@ -2,9 +2,11 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { initStorage } from "./storage";
+import { initStorage, MemoryStorage } from "./storage";
 import { getBrandConfigFromProcess } from "@shared/brand-config";
 import { startTavilyScheduler } from "./tavily";
+import { initDb, getPool } from "./db";
+import { PgStorage } from "./pg-storage";
 
 const app = express();
 const httpServer = createServer(app);
@@ -63,9 +65,24 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Initialize storage with brand-configured monitored brands
+  // Initialize storage — Postgres if DATABASE_URL is set, otherwise in-memory
   const brandCfg = getBrandConfigFromProcess();
-  initStorage(brandCfg.monitoredBrands);
+  if (process.env.DATABASE_URL) {
+    try {
+      await initDb(process.env.DATABASE_URL);
+      const pool = getPool()!;
+      const pgStore = new PgStorage(pool);
+      await pgStore.seedIfNeeded(brandCfg.monitoredBrands);
+      initStorage(brandCfg.monitoredBrands, pgStore);
+      log("Using PostgreSQL storage");
+    } catch (err) {
+      log(`PostgreSQL init failed — falling back to memory storage: ${err}`);
+      initStorage(brandCfg.monitoredBrands);
+    }
+  } else {
+    initStorage(brandCfg.monitoredBrands);
+    log("Using in-memory storage (no DATABASE_URL set)");
+  }
 
   await registerRoutes(httpServer, app);
 

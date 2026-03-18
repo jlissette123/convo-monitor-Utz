@@ -557,6 +557,7 @@ export function getStorage(): IStorage {
   if (!_storage) throw new Error("Storage not initialized — call initStorage() first");
   return _storage;
 }
-export function initStorage(brands: string[] = []) {
-  _storage = new MemoryStorage(brands);
+// Pass an existing IStorage instance (e.g. PgStorage) or create a new MemoryStorage
+export function initStorage(brands: string[] = [], instance?: IStorage) {
+  _storage = instance ?? new MemoryStorage(brands);
 }

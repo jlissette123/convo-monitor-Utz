@@ -81,3 +81,21 @@ export const teamMembers = pgTable("team_members", {
 });
 
 export type TeamMember = typeof teamMembers.$inferSelect;
+
+// ─── Culture Reviews ──────────────────────────────────────────────────────────
+export const cultureReviews = pgTable("culture_reviews", {
+  id: text("id").primaryKey(),
+  source: text("source").notNull(),        // glassdoor | indeed | comparably
+  url: text("url").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  sentiment: text("sentiment").notNull(),  // positive | neutral | negative
+  sentimentScore: integer("sentiment_score").notNull(),
+  priority: text("priority").notNull(),   // high | medium | low
+  status: text("status").notNull().default("pending"),
+  capturedAt: text("captured_at").notNull(),
+});
+
+export const insertCultureReviewSchema = createInsertSchema(cultureReviews).omit({ capturedAt: true });
+export type InsertCultureReviewSchema = z.infer<typeof insertCultureReviewSchema>;
+export type CultureReviewRow = typeof cultureReviews.$inferSelect;
