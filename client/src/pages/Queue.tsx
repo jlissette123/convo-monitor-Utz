@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Twitter, Linkedin, Globe, BookOpen, ExternalLink,
-  Filter, Search, ChevronRight, Sparkles, Eye, ArrowUpDown,
+  Filter, Search, ChevronRight, Sparkles, Eye, ArrowUpDown, Forward,
 } from "lucide-react";
+import { ForwardModal } from "@/components/ForwardModal";
 import { FaReddit } from "react-icons/fa";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -53,6 +54,7 @@ export function Queue() {
   const [platformFilter, setPlatformFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState("newest");
+  const [forwardingId, setForwardingId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const { data: conversations, isLoading } = useQuery<Conversation[]>({
@@ -317,6 +319,14 @@ export function Queue() {
                 <Sparkles size={14} className="mr-1.5" />
                 {generateDraft.isPending ? "Generating…" : "Generate Draft Reply"}
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setForwardingId(selected.id)}
+                data-testid="button-forward"
+              >
+                <Forward size={14} className="mr-1.5" /> Forward
+              </Button>
               {selected.status !== "dismissed" && (
                 <Button
                   size="sm"
@@ -333,6 +343,17 @@ export function Queue() {
           </div>
         )}
       </div>
+
+      {/* Forward modal */}
+      {forwardingId && selected && (
+        <ForwardModal
+          conversationId={forwardingId}
+          authorName={selected.authorName}
+          platform={selected.platform}
+          sentiment={selected.sentiment}
+          onClose={() => setForwardingId(null)}
+        />
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import type { Server } from "http";
+import nodemailer from "nodemailer";
 import { getStorage } from "./storage";
 import { getBrandConfigFromProcess } from "@shared/brand-config";
 import { generateAIDraft, schedulerState, triggerManualRefresh, runCultureScan } from "./tavily";
@@ -295,6 +296,77 @@ export function registerRoutes(httpServer: Server, app: Express) {
       if (!apiKey) return res.status(400).json({ error: "TAVILY_API_KEY not set" });
       const result = await runCultureScan(cfg.name, apiKey);
       res.json({ message: `Culture scan complete — ${result.ingested} new reviews`, ...result });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  // ── Forward Conversation ──────────────────────────────────────────────────
+  app.post("/api/conversations/:id/forward", async (req, res) => {
+    try {
+      const { to, note } = req.body as { to: string; note?: string };
+      if (!to) return res.status(400).json({ error: "Recipient email required" });
+
+      const conversation = await getStorage().getConversation(req.params.id);
+      if (!conversation) return res.status(404).json({ error: "Not found" });
+
+      const draftsForConv = await getStorage().getDraftRepliesForConversation(req.params.id);
+      const latestDraft = draftsForConv.find(d => d.status === "awaiting") ?? draftsForConv[0];
+
+      // Check SMTP config
+      const smtpHost = process.env.SMTP_HOST;
+      const smtpPort = parseInt(process.env.SMTP_PORT ?? "587");
+      const smtpUser = process.env.SMTP_USER;
+      const smtpPass = process.env.SMTP_PASS;
+      const smtpFrom = process.env.SMTP_FROM ?? smtpUser;
+
+      if (!smtpHost || !smtpUser || !smtpPass) {
+        return res.status(503).json({
+          error: "Email not configured",
+          message: "Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM to your Railway environment variables.",
+        });
+      }
+
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        auth: { user: smtpUser, pass: smtpPass },
+      });
+
+      const draftSection = latestDraft
+        ? `\n\n---\nAI DRAFT REPLY (${latestDraft.status}):\n${latestDraft.content}`
+        : "";
+
+      const noteSection = note ? `\n\nNOTE FROM SENDER:\n${note}` : "";
+
+      const emailBody = `A conversation has been forwarded to you from the ${cfg.name} Monitor.${noteSection}\n\n` +
+        `--- CONVERSATION DETAILS ---\n` +
+        `Author:     ${conversation.authorName} (${conversation.authorHandle})\n` +
+        `Platform:   ${conversation.platform}\n` +
+        `Sentiment:  ${conversation.sentiment} (${conversation.sentimentScore}/100)\n` +
+        `Priority:   ${conversation.priority}\n` +
+        `Published:  ${new Date(conversation.publishedAt).toLocaleString()}\n` +
+        `Source URL: ${conversation.url}\n\n` +
+        `CONTENT:\n${conversation.content}` +
+        draftSection;
+
+      await transporter.sendMail({
+        from: `"${cfg.name} Monitor" <${smtpFrom}>`,
+        to,
+        subject: `[${cfg.name} Monitor] Forwarded: ${conversation.authorName} on ${conversation.platform} — ${conversation.sentiment} sentiment`,
+        text: emailBody,
+      });
+
+      await getStorage().addActivityEntry({
+        type: "review",
+        description: `Conversation ${req.params.id} forwarded to ${to}`,
+        conversationId: req.params.id,
+        userId: null,
+        timestamp: new Date().toISOString(),
+      });
+
+      res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: String(e) });
     }
