@@ -23,9 +23,9 @@
  *   VITE_BRAND_DARK_PRIMARY_L  Dark-mode light %        default: 47
  *
  *   VITE_BRAND_MONITORED_BRANDS   Comma-separated brand names to monitor
- *                                 e.g. "Evian,FIJI,Volvic,Perrier"
+ *                                 e.g. "Utz Snacks,Zapp's,Dirty Potato Chips"
  *   VITE_BRAND_MONITORED_KEYWORDS Comma-separated keywords to track
- *                                 e.g. "hydration,spring water,mineral water"
+ *                                 e.g. "salty snacks,potato chips,tortilla chips"
  *
  *   VITE_BRAND_FONT_HEADING    Google/Fontshare font name for headings
  *                              e.g. "Cabinet Grotesk"  default: "Cabinet Grotesk"

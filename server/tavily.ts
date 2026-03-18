@@ -424,29 +424,40 @@ export function startTavilyScheduler(
 }
 
 // ── Culture Monitor Scan ──────────────────────────────────────────────────
-// Searches Glassdoor, Indeed, and Comparably for employer reviews.
-// Results are stored in the separate cultureReviews store — never in conversations.
-// Negative results are flagged for the Negative Sentiment inbox via the frontend query.
+// Searches the open web for employer reputation signals — news coverage,
+// press reports, and publicly indexed content about workplace culture.
+//
+// NOTE: Glassdoor and Indeed require login to view reviews and actively block
+// web crawlers. Locking queries to those domains (include_domains) returns 0
+// real results. Instead we search the open web broadly, which surfaces:
+//   – News articles about layoffs, culture issues, executive changes
+//   – LinkedIn posts and Reddit threads that are publicly indexed
+//   – Business press coverage of workplace/culture stories
+//   – Any Glassdoor/Indeed snippets that are indexed in Google News
+//
+// Results are stored in the separate cultureReviews store — never in
+// the main Conversation Inbox. Negative results also appear in Negative
+// Sentiment via the frontend query. ZERO fake/seed results.
 
-const CULTURE_SOURCES: Array<{
-  source: "glassdoor" | "indeed" | "comparably";
-  domain: string;
+const CULTURE_QUERIES: Array<{
+  source: "glassdoor" | "indeed" | "comparably" | "news" | "reddit";
   queryTemplate: (brand: string) => string;
 }> = [
   {
-    source: "glassdoor",
-    domain: "glassdoor.com",
-    queryTemplate: (b) => `"${b}" employee reviews site:glassdoor.com`,
+    source: "news",
+    queryTemplate: (b) => `"${b}" employees workplace culture layoffs OR "work environment" OR "employee reviews"`,
   },
   {
-    source: "indeed",
-    domain: "indeed.com",
-    queryTemplate: (b) => `"${b}" employee reviews site:indeed.com`,
+    source: "glassdoor",
+    queryTemplate: (b) => `"${b}" glassdoor reviews employees OR "great place to work" OR "CEO approval"`,
+  },
+  {
+    source: "reddit",
+    queryTemplate: (b) => `"${b}" employees reddit OR "working at" OR "interview experience" OR "company culture"`,
   },
   {
     source: "comparably",
-    domain: "comparably.com",
-    queryTemplate: (b) => `"${b}" company culture CEO approval site:comparably.com`,
+    queryTemplate: (b) => `"${b}" comparably OR "company culture score" OR "eNPS" OR "employee satisfaction"`,
   },
 ];
 
@@ -464,7 +475,7 @@ export async function runCultureScan(
   const existingUrls = new Set(existing.map(r => r.url));
   let ingested = 0;
 
-  for (const src of CULTURE_SOURCES) {
+  for (const src of CULTURE_QUERIES) {
     const query = src.queryTemplate(brandName);
     try {
       const res = await fetch(TAVILY_API_URL, {
@@ -477,12 +488,12 @@ export async function runCultureScan(
           include_answer: false,
           include_raw_content: false,
           max_results: 5,
-          include_domains: [src.domain],
+          // No include_domains — open web search so we get real indexed results
         }),
       });
 
       if (!res.ok) {
-        log(`Culture scan failed for ${src.source}: ${res.status}`, "tavily");
+        log(`Culture scan failed for "${src.source}" query: ${res.status}`, "tavily");
         continue;
       }
 
@@ -499,10 +510,17 @@ export async function runCultureScan(
           : sentiment === "positive" && score > 75 ? "low"
           : "medium";
 
+        // Determine display source label from URL for UI clarity
+        const displaySource = result.url.includes("glassdoor.com") ? "glassdoor"
+          : result.url.includes("indeed.com") ? "indeed"
+          : result.url.includes("comparably.com") ? "comparably"
+          : result.url.includes("reddit.com") ? "reddit"
+          : src.source;
+
         const id = `cr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
         await storage.createCultureReview({
           id,
-          source: src.source,
+          source: displaySource,
           url: result.url,
           title: result.title.slice(0, 120),
           content: result.content.slice(0, 500),
@@ -514,17 +532,17 @@ export async function runCultureScan(
 
         ingested++;
         existingUrls.add(result.url);
-        log(`Culture review ingested from ${src.source}: ${result.url}`, "tavily");
+        log(`Culture review ingested [${displaySource}]: ${result.url}`, "tavily");
       }
     } catch (err) {
-      log(`Culture scan error for ${src.source}: ${err}`, "tavily");
+      log(`Culture scan error for "${src.source}" query: ${err}`, "tavily");
     }
   }
 
   if (ingested > 0) {
     await storage.addActivityEntry({
       type: "capture",
-      description: `${ingested} new culture review${ingested > 1 ? "s" : ""} captured from Glassdoor, Indeed & Comparably`,
+      description: `${ingested} new culture review${ingested > 1 ? "s" : ""} captured from open web search`,
       conversationId: null,
       userId: null,
       timestamp: new Date().toISOString(),

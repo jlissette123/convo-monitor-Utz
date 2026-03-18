@@ -73,6 +73,7 @@ app.use((req, res, next) => {
       const pool = getPool()!;
       const pgStore = new PgStorage(pool);
       await pgStore.seedIfNeeded(brandCfg.monitoredBrands);
+      await pgStore.purgeFakeSeedData(); // remove any fabricated rows from prior versions
       initStorage(brandCfg.monitoredBrands, pgStore);
       log("Using PostgreSQL storage");
     } catch (err) {

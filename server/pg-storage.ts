@@ -108,142 +108,13 @@ export class PgStorage implements IStorage {
   constructor(private pool: Pool) {}
 
   // ── Seed on first run ──────────────────────────────────────────────────────
-  async seedIfNeeded(brands: string[]) {
+  async seedIfNeeded(_brands: string[]) {
     const res = await this.pool.query(
       "SELECT value FROM db_meta WHERE key = 'seeded'"
     );
-    if (res.rows.length > 0) return; // already seeded
+    if (res.rows.length > 0) return; // already initialized
 
-    const b0 = brands[0] ?? "Brand A";
-    const b1 = brands[1] ?? "Brand B";
-    const b2 = brands[2] ?? "Brand C";
-    const b3 = brands[3] ?? "Brand D";
-
-    const now = Date.now();
-
-    // Conversations
-    const seedConvs = [
-      {
-        id: "c1", platform: "twitter", author_handle: "@snackfan_maya", author_name: "Maya Torres",
-        content: `Just cracked open a bag of ${b0} and honestly this might be the best chip I've had all year. The crunch is unreal 🔥 #snacks #chiplife`,
-        url: "https://twitter.com/snackfan_maya/status/1",
-        published_at: new Date(now - 2 * 3600000).toISOString(),
-        sentiment: "positive", sentiment_score: 87, priority: "high", status: "pending",
-        brand_mentions: [b0], tags: ["testimonial", "taste", "organic"],
-        engagement_count: 142, flagged_reason: "High engagement positive mention", assigned_to: null,
-        created_at: new Date(now - 2 * 3600000).toISOString(),
-      },
-      {
-        id: "c2", platform: "reddit", author_handle: "u/chip_ranking_guy", author_name: "chip_ranking_guy",
-        content: `Ranked every chip brand I could find: ${b0} vs ${b1} vs ${b2}. ${b0} wins on classic flavor, ${b1} edges it out on seasoning variety. ${b2} is underrated imo.`,
-        url: "https://reddit.com/r/snacks/comments/abc",
-        published_at: new Date(now - 5 * 3600000).toISOString(),
-        sentiment: "neutral", sentiment_score: 55, priority: "medium", status: "in_review",
-        brand_mentions: [b0, b1, b2], tags: ["ranking", "comparison", "competitor"],
-        engagement_count: 89, flagged_reason: "Multi-brand comparison thread", assigned_to: "reviewer-1",
-        created_at: new Date(now - 5 * 3600000).toISOString(),
-      },
-      {
-        id: "c3", platform: "linkedin", author_handle: "james-liu-retail", author_name: "James Liu",
-        content: `Category manager perspective: ${b0} has been one of our top shelf performers for three straight quarters. Strong velocity, minimal returns, and the brand loyalty data is impressive.`,
-        url: "https://linkedin.com/posts/james-liu-retail",
-        published_at: new Date(now - 8 * 3600000).toISOString(),
-        sentiment: "positive", sentiment_score: 94, priority: "high", status: "pending",
-        brand_mentions: [b0], tags: ["retail", "CPG", "endorsement", "professional"],
-        engagement_count: 312, flagged_reason: "Professional endorsement — high authority", assigned_to: null,
-        created_at: new Date(now - 8 * 3600000).toISOString(),
-      },
-      {
-        id: "c4", platform: "twitter", author_handle: "@enviro_watch", author_name: "Enviro Watch",
-        content: `Thread on plastic packaging in the snack industry: ${b0} pledged 30% recycled content in bags by 2025, but latest supplier audits show only 11% compliance. When will snack brands get serious about packaging? 🧵`,
-        url: "https://twitter.com/enviro_watch/status/2",
-        published_at: new Date(now - 12 * 3600000).toISOString(),
-        sentiment: "negative", sentiment_score: 21, priority: "high", status: "pending",
-        brand_mentions: [b0], tags: ["sustainability", "packaging", "criticism"],
-        engagement_count: 567, flagged_reason: "Negative sustainability criticism — high reach", assigned_to: null,
-        created_at: new Date(now - 12 * 3600000).toISOString(),
-      },
-      {
-        id: "c5", platform: "blog", author_handle: "snack-obsessed-blog", author_name: "Snack Obsessed",
-        content: `We taste-tested 12 salty snack brands this quarter. ${b0} topped our rankings for crunch factor and bold seasoning. ${b3} came in second for value and variety.`,
-        url: "https://snackobsessed.com/chip-rankings-2026",
-        published_at: new Date(now - 24 * 3600000).toISOString(),
-        sentiment: "positive", sentiment_score: 79, priority: "medium", status: "pending",
-        brand_mentions: [b0, b3], tags: ["review", "ranking", "press"],
-        engagement_count: 204, flagged_reason: "Press mention — top snack ranking", assigned_to: null,
-        created_at: new Date(now - 24 * 3600000).toISOString(),
-      },
-      {
-        id: "c6", platform: "twitter", author_handle: "@snackrun_jane", author_name: "Jane from Portland",
-        content: `Why is ${b0} always out of stock at my grocery store?? I've been hunting for that BBQ flavor for two weeks. ${b1} is my backup but the crunch just isn't the same.`,
-        url: "https://twitter.com/snackrun_jane/status/3",
-        published_at: new Date(now - 36 * 3600000).toISOString(),
-        sentiment: "negative", sentiment_score: 38, priority: "low", status: "dismissed",
-        brand_mentions: [b0, b1], tags: ["availability", "retail", "stock"],
-        engagement_count: 18, flagged_reason: "Supply / availability complaint", assigned_to: null,
-        created_at: new Date(now - 36 * 3600000).toISOString(),
-      },
-    ];
-
-    for (const c of seedConvs) {
-      await this.pool.query(
-        `INSERT INTO conversations (id, platform, author_handle, author_name, content, url, published_at, sentiment, sentiment_score, priority, status, brand_mentions, tags, engagement_count, flagged_reason, assigned_to, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT DO NOTHING`,
-        [c.id, c.platform, c.author_handle, c.author_name, c.content, c.url, c.published_at, c.sentiment, c.sentiment_score, c.priority, c.status, c.brand_mentions, c.tags, c.engagement_count, c.flagged_reason, c.assigned_to, c.created_at]
-      );
-    }
-
-    // Draft replies
-    const genAt = (msAgo: number) => new Date(now - msAgo).toISOString();
-    const seedDrafts = [
-      { id: "d1", conversation_id: "c3", content: `Thank you, James — insights like yours from the category management side mean a lot to us. We'd love to share this perspective with our team.`, status: "awaiting", generated_at: genAt(7 * 3600000), reviewed_at: null, reviewed_by: null, review_note: null },
-      { id: "d2", conversation_id: "c1", content: `This made our day, Maya! Nothing better than finding your go-to chip. We're so glad we've earned that crunch seal of approval. 🔥`, status: "approved", generated_at: genAt(90 * 60000), reviewed_at: genAt(60 * 60000), reviewed_by: "reviewer-1", review_note: null },
-      { id: "d3", conversation_id: "c4", content: `We appreciate you holding us to our commitments. You're right that we've fallen short of our 2025 packaging target. We're publishing a full transparency report this quarter.`, status: "awaiting", generated_at: genAt(11 * 3600000), reviewed_at: null, reviewed_by: null, review_note: null },
-    ];
-
-    for (const d of seedDrafts) {
-      await this.pool.query(
-        `INSERT INTO draft_replies (id, conversation_id, content, status, generated_at, reviewed_at, reviewed_by, review_note)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
-        [d.id, d.conversation_id, d.content, d.status, d.generated_at, d.reviewed_at, d.reviewed_by, d.review_note]
-      );
-    }
-
-    // Knowledge
-    const seedKnowledge = [
-      { id: "k1", title: "Brand Origin & Heritage", category: "Brand Story", content: `${b0} has roots going back decades as a beloved American snack brand. Built on the promise of real ingredients, honest flavors, and the perfect crunch.`, tags: ["origin", "heritage", "mission"] },
-      { id: "k2", title: "Sustainability Commitments", category: "Sustainability", content: `We are committed to 100% recycled packaging by 2026, carbon neutrality by 2030, and zero water waste in our facilities. Our sustainability report is published annually.`, tags: ["sustainability", "packaging", "carbon"] },
-      { id: "k3", title: "Response Template — Criticism", category: "Response Templates", content: `For critical conversations, acknowledge the concern genuinely, provide specific facts, share what we're doing to improve, and offer a direct contact for follow-up. Never be defensive.`, tags: ["response", "crisis", "template"] },
-      { id: "k4", title: "Product Line & Flavors", category: "Product Facts", content: `${b0} offers a wide range of snack products including original, BBQ, cheddar, salt & vinegar, sour cream & onion, and limited-edition seasonal flavors. Gluten-free and reduced-sodium varieties available.`, tags: ["products", "flavors", "SKUs", "portfolio"] },
-      { id: "k5", title: "Response Template — Influencer Outreach", category: "Response Templates", content: `When a health professional or influencer praises the brand, respond warmly and offer to connect them with our brand partnership team. Always ask permission before featuring their content.`, tags: ["influencer", "outreach", "template"] },
-    ];
-
-    const ts = new Date().toISOString();
-    for (const k of seedKnowledge) {
-      await this.pool.query(
-        `INSERT INTO knowledge_entries (id, title, category, content, tags, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
-        [k.id, k.title, k.category, k.content, k.tags, ts, ts]
-      );
-    }
-
-    // Activity
-    const seedActivity = [
-      { id: "a1", type: "capture", description: "12 new conversations captured via web search", conversation_id: null, user_id: null, timestamp: genAt(10 * 60000) },
-      { id: "a2", type: "review", description: "Conversation c2 moved to In Review", conversation_id: "c2", user_id: "reviewer-1", timestamp: genAt(25 * 60000) },
-      { id: "a3", type: "reply", description: "Draft reply approved for c1", conversation_id: "c1", user_id: "reviewer-1", timestamp: genAt(55 * 60000) },
-      { id: "a4", type: "knowledge_update", description: "Knowledge entry 'Product Line & Flavors' updated", conversation_id: null, user_id: "admin-1", timestamp: genAt(2 * 3600000) },
-    ];
-
-    for (const a of seedActivity) {
-      await this.pool.query(
-        `INSERT INTO activity_log (id, type, description, conversation_id, user_id, timestamp)
-         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
-        [a.id, a.type, a.description, a.conversation_id, a.user_id, a.timestamp]
-      );
-    }
-
-    // Team
+    // Seed team members only (real app config, not fake data)
     const seedTeam = [
       { id: "admin-1", name: "Admin User", email: "admin@brand.com", role: "admin", avatar_initials: "AU", is_active: true },
       { id: "reviewer-1", name: "Sam Rivera", email: "sam@brand.com", role: "reviewer", avatar_initials: "SR", is_active: true },
@@ -258,29 +129,52 @@ export class PgStorage implements IStorage {
       );
     }
 
-    // Culture reviews
-    const seedCulture = [
-      { id: "cr1", source: "glassdoor", url: "https://www.glassdoor.com/Reviews/review-1.htm", title: `${b0} - Great place to work if you love snacks`, content: `I've worked at ${b0} for 3 years. Management is supportive, benefits are solid, and there's real room for growth. Recommend.`, sentiment: "positive", sentiment_score: 82, priority: "low", status: "pending", captured_at: genAt(4 * 3600000) },
-      { id: "cr2", source: "indeed", url: "https://www.indeed.com/cmp/review-2", title: `${b0} - Warehouse conditions need improvement`, content: `Pay is okay but the warehouse in the summer is brutal. No AC in the packing area. HR has been promising fixes for two years.`, sentiment: "negative", sentiment_score: 22, priority: "high", status: "pending", captured_at: genAt(8 * 3600000) },
-      { id: "cr3", source: "comparably", url: "https://www.comparably.com/companies/review-3", title: `${b0} - CEO approval and culture scores`, content: `Culture score: B+. CEO approval: 71%. Employees rate work-life balance as above average for CPG industry. Leadership transparency could improve.`, sentiment: "neutral", sentiment_score: 55, priority: "medium", status: "pending", captured_at: genAt(12 * 3600000) },
-      { id: "cr4", source: "glassdoor", url: "https://www.glassdoor.com/Reviews/review-4.htm", title: `${b0} - Poor communication from upper management`, content: `Decisions made at the top with no explanation to middle management or staff. Found out about a major restructuring through the rumor mill.`, sentiment: "negative", sentiment_score: 18, priority: "high", status: "pending", captured_at: genAt(20 * 3600000) },
-      { id: "cr5", source: "indeed", url: "https://www.indeed.com/cmp/review-5", title: `${b0} - Solid entry-level brand, learned a lot`, content: `Good training programs for new hires. The brand is strong enough that it looks great on a resume. Moved on after 2 years for better pay but no hard feelings.`, sentiment: "positive", sentiment_score: 74, priority: "low", status: "noted", captured_at: genAt(30 * 3600000) },
-    ];
+    // Culture reviews: no seeds — populated by real Tavily scans only.
+    // Zero fake/placeholder results allowed.
 
-    for (const cr of seedCulture) {
-      await this.pool.query(
-        `INSERT INTO culture_reviews (id, source, url, title, content, sentiment, sentiment_score, priority, status, captured_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING`,
-        [cr.id, cr.source, cr.url, cr.title, cr.content, cr.sentiment, cr.sentiment_score, cr.priority, cr.status, cr.captured_at]
-      );
-    }
-
-    // Mark seeded
+    // Mark initialized
     await this.pool.query(
       `INSERT INTO db_meta (key, value) VALUES ('seeded', 'true') ON CONFLICT DO NOTHING`
     );
 
-    console.log("[PgStorage] Database seeded successfully");
+    console.log("[PgStorage] Database initialized successfully");
+  }
+
+  // ── Purge fake seed data from prior versions ────────────────────────────────
+  // Called on every boot to remove any fabricated rows that may have been
+  // inserted by older versions of the app. Safe to run repeatedly.
+  async purgeFakeSeedData() {
+    const fakeConvIds = ["c1", "c2", "c3", "c4", "c5", "c6"];
+    const fakeDraftIds = ["d1", "d2", "d3"];
+    const fakeKnowledgeIds = ["k1", "k2", "k3", "k4", "k5"];
+    const fakeActivityIds = ["a1", "a2", "a3", "a4"];
+    const fakeCultureIds = ["cr1", "cr2", "cr3", "cr4", "cr5"];
+
+    const convRes = await this.pool.query(
+      `DELETE FROM conversations WHERE id = ANY($1) RETURNING id`,
+      [fakeConvIds]
+    );
+    const draftRes = await this.pool.query(
+      `DELETE FROM draft_replies WHERE id = ANY($1) RETURNING id`,
+      [fakeDraftIds]
+    );
+    const knowRes = await this.pool.query(
+      `DELETE FROM knowledge_entries WHERE id = ANY($1) RETURNING id`,
+      [fakeKnowledgeIds]
+    );
+    const actRes = await this.pool.query(
+      `DELETE FROM activity_log WHERE id = ANY($1) RETURNING id`,
+      [fakeActivityIds]
+    );
+    const cultRes = await this.pool.query(
+      `DELETE FROM culture_reviews WHERE id = ANY($1) RETURNING id`,
+      [fakeCultureIds]
+    );
+
+    const total = convRes.rowCount + draftRes.rowCount + knowRes.rowCount + actRes.rowCount + cultRes.rowCount;
+    if (total > 0) {
+      console.log(`[PgStorage] Purged ${total} fake seed rows (${convRes.rowCount} convs, ${draftRes.rowCount} drafts, ${knowRes.rowCount} knowledge, ${actRes.rowCount} activity, ${cultRes.rowCount} culture)`);
+    }
   }
 
   // ── Conversations ──────────────────────────────────────────────────────────
