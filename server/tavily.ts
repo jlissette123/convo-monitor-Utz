@@ -1,6 +1,10 @@
 /**
  * Tavily integration — brand mention search + conversation ingestion
  * Runs on startup and every 3 hours automatically.
+ *
+ * Sentiment scoring:
+ *   Primary  — Claude Haiku (via ANTHROPIC_API_KEY) for contextual accuracy
+ *   Fallback — VADER-style rule-based scorer (negation, intensifiers, punctuation)
  */
 
 import { getStorage } from "./storage";
@@ -9,25 +13,173 @@ import { log } from "./index";
 const TAVILY_API_URL = "https://api.tavily.com/search";
 const REFRESH_INTERVAL_MS = 3 * 60 * 60 * 1000; // 3 hours
 
-// ── Sentiment heuristics ───────────────────────────────────────────────────
-const POSITIVE_WORDS = [
-  "love", "great", "amazing", "best", "excellent", "fantastic", "wonderful",
-  "delicious", "perfect", "awesome", "favorite", "highly recommend", "impressed",
-  "outstanding", "top", "brilliant", "superb", "enjoyed", "pleased", "happy",
-];
-const NEGATIVE_WORDS = [
-  "hate", "terrible", "awful", "worst", "bad", "disappointed", "poor",
-  "disgusting", "horrible", "avoid", "never again", "overpriced", "stale",
-  "bland", "gross", "nasty", "complaint", "problem", "issue", "broken",
-];
+// ── Claude Haiku sentiment scorer ─────────────────────────────────────────
+async function scoreSentimentLLM(
+  text: string,
+  apiKey: string,
+): Promise<{ sentiment: "positive" | "neutral" | "negative"; score: number; reason: string } | null> {
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5",
+        max_tokens: 120,
+        messages: [
+          {
+            role: "user",
+            content: `Analyze the sentiment of the following brand mention. Reply ONLY with a JSON object — no prose, no markdown, no explanation outside the JSON.
 
-function scoreSentiment(text: string): { sentiment: "positive" | "neutral" | "negative"; score: number } {
-  const lower = text.toLowerCase();
-  const pos = POSITIVE_WORDS.filter(w => lower.includes(w)).length;
-  const neg = NEGATIVE_WORDS.filter(w => lower.includes(w)).length;
-  if (pos > neg) return { sentiment: "positive", score: Math.min(95, 60 + pos * 8) };
-  if (neg > pos) return { sentiment: "negative", score: Math.max(5, 40 - neg * 8) };
-  return { sentiment: "neutral", score: 50 };
+Required format:
+{"sentiment": "positive" | "neutral" | "negative", "score": <integer 0-100>, "reason": "<one sentence max>"}
+
+Scoring guide:
+- score 0–30  = strongly negative (angry, disappointed, harmful to brand)
+- score 31–45 = mildly negative
+- score 46–54 = neutral
+- score 55–74 = mildly positive
+- score 75–100 = strongly positive
+
+Text to analyze:
+"""${text.slice(0, 600)}"""
+
+JSON:`,
+          },
+        ],
+      }),
+    });
+
+    if (!res.ok) {
+      log(`Anthropic API error ${res.status} — falling back to heuristic scorer`, "sentiment");
+      return null;
+    }
+
+    const data = await res.json() as { content: Array<{ type: string; text: string }> };
+    const raw = data.content?.[0]?.text?.trim() ?? "";
+
+    // Strip any accidental markdown fences
+    const cleaned = raw.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+    const parsed = JSON.parse(cleaned) as { sentiment: string; score: number; reason: string };
+
+    if (!parsed.sentiment || typeof parsed.score !== "number") return null;
+    const sentiment = ["positive", "neutral", "negative"].includes(parsed.sentiment)
+      ? (parsed.sentiment as "positive" | "neutral" | "negative")
+      : "neutral";
+    const score = Math.max(0, Math.min(100, Math.round(parsed.score)));
+    return { sentiment, score, reason: parsed.reason ?? "" };
+  } catch (err) {
+    log(`LLM sentiment parse error: ${err} — falling back to heuristic scorer`, "sentiment");
+    return null;
+  }
+}
+
+// ── VADER-style fallback scorer ────────────────────────────────────────────
+// Handles negation ("not great"), intensifiers ("very bad"), and punctuation (!)
+// Significant upgrade over the old simple word-count approach.
+const POSITIVE_LEXICON: Record<string, number> = {
+  love: 3, loved: 3, loving: 3,
+  amazing: 3, "highly recommend": 3, outstanding: 3, exceptional: 3, excellent: 3, superb: 3, brilliant: 3,
+  great: 2.5, fantastic: 2.5, wonderful: 2.5, awesome: 2.5, impressed: 2.5, delighted: 2.5,
+  good: 2, enjoy: 2, enjoyed: 2, pleased: 2, happy: 2, perfect: 2, best: 2, favorite: 2, favourite: 2,
+  nice: 1.5, solid: 1.5, helpful: 1.5, recommend: 1.5, quality: 1.5,
+  fine: 1, okay: 0.8, ok: 0.8,
+};
+const NEGATIVE_LEXICON: Record<string, number> = {
+  hate: 3, hated: 3, disgusting: 3, horrible: 3, atrocious: 3, appalling: 3,
+  terrible: 2.5, awful: 2.5, worst: 2.5, dreadful: 2.5, deplorable: 2.5,
+  bad: 2, disappointed: 2, disappointing: 2, poor: 2, avoid: 2, "never again": 2, unacceptable: 2,
+  broken: 1.8, defective: 1.8, useless: 1.8, misleading: 1.8, scam: 1.8,
+  overpriced: 1.5, complaint: 1.5, problem: 1.5, issue: 1.5, slow: 1.3,
+  gross: 1.5, nasty: 1.5, bland: 1, stale: 1,
+  mediocre: 1, meh: 0.8, underwhelming: 1.2, lacking: 1,
+};
+const NEGATORS = new Set(["not", "no", "never", "neither", "nor", "without", "hardly", "barely", "scarcely", "n't"]);
+const INTENSIFIERS: Record<string, number> = {
+  very: 1.3, extremely: 1.5, incredibly: 1.5, absolutely: 1.4, totally: 1.3,
+  really: 1.2, so: 1.1, quite: 1.1, super: 1.2, utterly: 1.5, deeply: 1.3,
+  little: 0.5, slightly: 0.6, somewhat: 0.7, kind_of: 0.8, sort_of: 0.8,
+};
+
+function scoreSentimentHeuristic(
+  text: string,
+): { sentiment: "positive" | "neutral" | "negative"; score: number } {
+  const tokens = text.toLowerCase().split(/\s+/);
+  let posSum = 0;
+  let negSum = 0;
+
+  // Check multi-word phrases first
+  const lowerText = text.toLowerCase();
+  for (const phrase of Object.keys(POSITIVE_LEXICON).filter(k => k.includes(" "))) {
+    if (lowerText.includes(phrase)) posSum += POSITIVE_LEXICON[phrase];
+  }
+  for (const phrase of Object.keys(NEGATIVE_LEXICON).filter(k => k.includes(" "))) {
+    if (lowerText.includes(phrase)) negSum += NEGATIVE_LEXICON[phrase];
+  }
+
+  // Token-by-token with negation window (±3 words) and intensifier window (prev 2)
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i].replace(/[^a-z']/g, "");
+    const posVal = POSITIVE_LEXICON[token];
+    const negVal = NEGATIVE_LEXICON[token];
+
+    if (posVal === undefined && negVal === undefined) continue;
+
+    // Check for negation in a 3-word window before this token
+    const windowStart = Math.max(0, i - 3);
+    const negated = tokens.slice(windowStart, i).some(t => NEGATORS.has(t.replace(/[^a-z']/g, "")));
+
+    // Check for intensifier in the 2-word window before
+    let multiplier = 1;
+    for (let j = Math.max(0, i - 2); j < i; j++) {
+      const t = tokens[j].replace(/[^a-z]/g, "");
+      if (INTENSIFIERS[t]) { multiplier = INTENSIFIERS[t]; break; }
+    }
+
+    if (posVal !== undefined) {
+      if (negated) negSum += posVal * multiplier * 0.8; // negated positive → negative
+      else posSum += posVal * multiplier;
+    } else if (negVal !== undefined) {
+      if (negated) posSum += negVal * multiplier * 0.5; // negated negative → slight positive
+      else negSum += negVal * multiplier;
+    }
+  }
+
+  // Punctuation boosts
+  const exclamations = (text.match(/!/g) ?? []).length;
+  const caps = (text.match(/[A-Z]{3,}/g) ?? []).length;
+  const boostSign = posSum >= negSum ? 1 : -1;
+  const boost = Math.min(1.5, 1 + (exclamations + caps) * 0.1) * boostSign;
+
+  const total = posSum + negSum;
+  if (total === 0) return { sentiment: "neutral", score: 50 };
+
+  const rawRatio = (posSum - negSum + boost) / (total + Math.abs(boost));
+  // Map rawRatio (-1 to +1) → score (0 to 100), center at 50
+  const score = Math.max(0, Math.min(100, Math.round(50 + rawRatio * 45)));
+
+  if (score >= 56) return { sentiment: "positive", score };
+  if (score <= 44) return { sentiment: "negative", score };
+  return { sentiment: "neutral", score };
+}
+
+// ── Public scorer — LLM primary, heuristic fallback ────────────────────────
+async function scoreSentiment(
+  text: string,
+): Promise<{ sentiment: "positive" | "neutral" | "negative"; score: number }> {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey) {
+    const result = await scoreSentimentLLM(text, anthropicKey);
+    if (result) {
+      log(`LLM scored: ${result.sentiment} (${result.score}) — ${result.reason}`, "sentiment");
+      return { sentiment: result.sentiment, score: result.score };
+    }
+  }
+  // Fallback
+  return scoreSentimentHeuristic(text);
 }
 
 function detectPlatform(url: string): string {
@@ -97,7 +249,7 @@ async function ingestResults(
     if (existingUrls.has(result.url)) continue;
 
     const text = `${result.title} ${result.content}`.slice(0, 800);
-    const { sentiment, score } = scoreSentiment(text);
+    const { sentiment, score } = await scoreSentiment(text);
     const platform = detectPlatform(result.url);
     const priority = priorityFromSentimentAndEngagement(sentiment, score);
 
@@ -170,7 +322,7 @@ export async function generateAIDraft(
   }
 
   // Fallback
-  const { sentiment } = scoreSentiment(conversationContent);
+  const { sentiment } = await scoreSentiment(conversationContent);
   if (sentiment === "positive") {
     return `This made our day! We're thrilled you're enjoying ${brandName}. Share your experience and tag us — we'd love to feature you!`;
   }
@@ -341,7 +493,7 @@ export async function runCultureScan(
         if (existingUrls.has(result.url)) continue;
 
         const text = `${result.title} ${result.content}`.slice(0, 800);
-        const { sentiment, score } = scoreSentiment(text);
+        const { sentiment, score } = await scoreSentiment(text);
         const priority = sentiment === "negative" && score < 30 ? "high"
           : sentiment === "negative" ? "medium"
           : sentiment === "positive" && score > 75 ? "low"
