@@ -221,6 +221,14 @@ export class PgStorage implements IStorage {
     );
     return res.rows[0] ? rowToConversation(res.rows[0]) : undefined;
   }
+  async deleteConversations(ids: string[]) {
+    if (ids.length === 0) return 0;
+    const res = await this.pool.query(
+      "DELETE FROM conversations WHERE id = ANY($1) RETURNING id",
+      [ids]
+    );
+    return res.rowCount ?? 0;
+  }
 
   // ── Drafts ─────────────────────────────────────────────────────────────────
   async getDraftReplies() {
@@ -356,6 +364,14 @@ export class PgStorage implements IStorage {
       [status, id]
     );
     return res.rows[0] ? rowToCultureReview(res.rows[0]) : undefined;
+  }
+  async deleteCultureReviews(ids: string[]) {
+    if (ids.length === 0) return 0;
+    const res = await this.pool.query(
+      "DELETE FROM culture_reviews WHERE id = ANY($1) RETURNING id",
+      [ids]
+    );
+    return res.rowCount ?? 0;
   }
 
   async getCultureStats() {

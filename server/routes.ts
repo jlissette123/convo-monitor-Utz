@@ -77,6 +77,18 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
+  app.delete("/api/conversations/batch", async (req, res) => {
+    try {
+      const { ids } = req.body as { ids: string[] };
+      if (!Array.isArray(ids) || ids.length === 0)
+        return res.status(400).json({ error: "ids array required" });
+      const deleted = await getStorage().deleteConversations(ids);
+      res.json({ deleted });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
   // ── Draft Replies ─────────────────────────────────────────────────────────
   app.get("/api/drafts", async (_req, res) => {
     try {
@@ -284,6 +296,18 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const updated = await getStorage().updateCultureReviewStatus(req.params.id, status);
       if (!updated) return res.status(404).json({ error: "Not found" });
       res.json(updated);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.delete("/api/culture-reviews/batch", async (req, res) => {
+    try {
+      const { ids } = req.body as { ids: string[] };
+      if (!Array.isArray(ids) || ids.length === 0)
+        return res.status(400).json({ error: "ids array required" });
+      const deleted = await getStorage().deleteCultureReviews(ids);
+      res.json({ deleted });
     } catch (e) {
       res.status(500).json({ error: String(e) });
     }

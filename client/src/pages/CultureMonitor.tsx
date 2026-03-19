@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Users, ExternalLink, TrendingDown, TrendingUp,
-  Minus, RefreshCw, Building2, AlertTriangle,
+  Minus, RefreshCw, Building2, AlertTriangle, Trash2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
@@ -76,6 +76,7 @@ export function CultureMonitor() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState("all");
   const [sentimentFilter, setSentimentFilter] = useState("all");
+  const [confirmDismissAll, setConfirmDismissAll] = useState(false);
   const { toast } = useToast();
 
   const { data: reviews, isLoading } = useQuery<CultureReview[]>({
@@ -97,6 +98,18 @@ export function CultureMonitor() {
       queryClient.invalidateQueries({ queryKey: ["/api/culture-reviews"] });
       queryClient.invalidateQueries({ queryKey: ["/api/culture-reviews/stats"] });
       toast({ title: "Status updated" });
+    },
+  });
+
+  const dismissAll = useMutation({
+    mutationFn: (ids: string[]) =>
+      apiRequest("DELETE", "/api/culture-reviews/batch", { ids }).then(r => r.json()),
+    onSuccess: (data: any) => {
+      setConfirmDismissAll(false);
+      setSelectedId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/culture-reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/culture-reviews/stats"] });
+      toast({ title: `${data.deleted} review${data.deleted !== 1 ? "s" : ""} deleted` });
     },
   });
 
@@ -137,18 +150,59 @@ export function CultureMonitor() {
               </div>
               <h1 className="text-sm font-semibold text-foreground">Culture Monitor</h1>
             </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs text-muted-foreground"
-              onClick={() => runScan.mutate()}
-              disabled={runScan.isPending}
-              data-testid="button-culture-scan"
-            >
-              <RefreshCw size={11} className={cn("mr-1", runScan.isPending && "animate-spin")} />
-              {runScan.isPending ? "Scanning…" : "Scan Now"}
-            </Button>
+            <div className="flex items-center gap-1">
+              {all.length > 0 && !confirmDismissAll && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs text-muted-foreground hover:text-red-500"
+                  onClick={() => setConfirmDismissAll(true)}
+                  data-testid="button-culture-dismiss-all"
+                >
+                  <Trash2 size={11} className="mr-1" /> Dismiss All
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs text-muted-foreground"
+                onClick={() => runScan.mutate()}
+                disabled={runScan.isPending}
+                data-testid="button-culture-scan"
+              >
+                <RefreshCw size={11} className={cn("mr-1", runScan.isPending && "animate-spin")} />
+                {runScan.isPending ? "Scanning…" : "Scan Now"}
+              </Button>
+            </div>
           </div>
+          {/* Confirm dismiss all */}
+          {confirmDismissAll && (
+            <div className="mb-2 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2.5">
+              <p className="text-xs text-red-600 dark:text-red-400 font-medium mb-2">
+                Delete all {all.length} review{all.length !== 1 ? "s" : ""} permanently?
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="h-6 text-xs bg-red-600 hover:bg-red-700 text-white"
+                  onClick={() => dismissAll.mutate(all.map(r => r.id))}
+                  disabled={dismissAll.isPending}
+                  data-testid="button-culture-confirm-dismiss-all"
+                >
+                  {dismissAll.isPending ? "Deleting…" : "Yes, delete all"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 text-xs"
+                  onClick={() => setConfirmDismissAll(false)}
+                  disabled={dismissAll.isPending}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
           <p className="text-xs text-muted-foreground mb-3">
             Employee reviews from Glassdoor, Indeed & Comparably
           </p>

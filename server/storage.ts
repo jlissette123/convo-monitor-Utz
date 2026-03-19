@@ -35,6 +35,7 @@ export interface IStorage {
   getConversation(id: string): Promise<Conversation | undefined>;
   createConversation(c: InsertConversation): Promise<Conversation>;
   updateConversationStatus(id: string, status: string, assignedTo?: string): Promise<Conversation | undefined>;
+  deleteConversations(ids: string[]): Promise<number>;
 
   // Drafts
   getDraftReplies(): Promise<DraftReply[]>;
@@ -61,6 +62,7 @@ export interface IStorage {
   getCultureReview(id: string): Promise<CultureReview | undefined>;
   createCultureReview(r: InsertCultureReview): Promise<CultureReview>;
   updateCultureReviewStatus(id: string, status: string): Promise<CultureReview | undefined>;
+  deleteCultureReviews(ids: string[]): Promise<number>;
   getCultureStats(): Promise<{ total: number; negative: number; pending: number; sentimentBreakdown: { positive: number; neutral: number; negative: number }; sourceBreakdown: Record<string, number> }>;
 
   // Stats
@@ -131,6 +133,11 @@ export class MemoryStorage implements IStorage {
     this.conversations.set(id, updated);
     return updated;
   }
+  async deleteConversations(ids: string[]) {
+    let count = 0;
+    for (const id of ids) { if (this.conversations.delete(id)) count++; }
+    return count;
+  }
 
   async getDraftReplies() { return Array.from(this.drafts.values()); }
   async getDraftRepliesForConversation(conversationId: string) {
@@ -199,6 +206,11 @@ export class MemoryStorage implements IStorage {
     const updated = { ...r, status: status as CultureReview["status"] };
     this.cultureReviews.set(id, updated);
     return updated;
+  }
+  async deleteCultureReviews(ids: string[]) {
+    let count = 0;
+    for (const id of ids) { if (this.cultureReviews.delete(id)) count++; }
+    return count;
   }
   async getCultureStats() {
     const all = Array.from(this.cultureReviews.values());

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Twitter, Linkedin, Globe, BookOpen, ExternalLink,
-  TrendingDown, ChevronRight, Sparkles, Eye, AlertTriangle,
+  TrendingDown, ChevronRight, Sparkles, Eye, AlertTriangle, Trash2,
 } from "lucide-react";
 import { FaReddit } from "react-icons/fa";
 import { useToast } from "@/hooks/use-toast";
@@ -59,6 +59,8 @@ export function NegativeSentiment() {
     enabled: !!selectedId,
   });
 
+  const [confirmDismissAll, setConfirmDismissAll] = useState(false);
+
   const updateStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       apiRequest("PATCH", `/api/conversations/${id}/status`, { status }).then(r => r.json()),
@@ -66,6 +68,18 @@ export function NegativeSentiment() {
       queryClient.invalidateQueries({ queryKey: ["/api/conversations", "negative"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       toast({ title: "Status updated" });
+    },
+  });
+
+  const dismissAll = useMutation({
+    mutationFn: (ids: string[]) =>
+      apiRequest("DELETE", "/api/conversations/batch", { ids }).then(r => r.json()),
+    onSuccess: (data: any) => {
+      setConfirmDismissAll(false);
+      setSelectedId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations", "negative"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: `${data.deleted} conversation${data.deleted !== 1 ? "s" : ""} deleted` });
     },
   });
 
@@ -88,11 +102,24 @@ export function NegativeSentiment() {
 
         {/* Header */}
         <div className="p-4 border-b border-border bg-sidebar">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="p-1.5 rounded-md bg-red-500/10">
-              <TrendingDown size={16} className="text-red-500" />
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-md bg-red-500/10">
+                <TrendingDown size={16} className="text-red-500" />
+              </div>
+              <h1 className="text-sm font-semibold text-foreground">Negative Sentiment</h1>
             </div>
-            <h1 className="text-sm font-semibold text-foreground">Negative Sentiment</h1>
+            {list.length > 0 && !confirmDismissAll && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs text-muted-foreground hover:text-red-500"
+                onClick={() => setConfirmDismissAll(true)}
+                data-testid="button-neg-dismiss-all"
+              >
+                <Trash2 size={11} className="mr-1" /> Dismiss All
+              </Button>
+            )}
           </div>
           <p className="text-xs text-muted-foreground">
             {isLoading ? "Loading…" : `${list.length} negative conversation${list.length !== 1 ? "s" : ""} flagged for review`}
@@ -104,6 +131,34 @@ export function NegativeSentiment() {
               </span>
             </Link>
           </div>
+          {/* Confirm dismiss all */}
+          {confirmDismissAll && (
+            <div className="mt-3 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2.5">
+              <p className="text-xs text-red-600 dark:text-red-400 font-medium mb-2">
+                Delete all {list.length} conversation{list.length !== 1 ? "s" : ""} permanently?
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="h-6 text-xs bg-red-600 hover:bg-red-700 text-white"
+                  onClick={() => dismissAll.mutate(list.map(c => c.id))}
+                  disabled={dismissAll.isPending}
+                  data-testid="button-neg-confirm-dismiss-all"
+                >
+                  {dismissAll.isPending ? "Deleting…" : "Yes, delete all"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 text-xs"
+                  onClick={() => setConfirmDismissAll(false)}
+                  disabled={dismissAll.isPending}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Alert banner */}
