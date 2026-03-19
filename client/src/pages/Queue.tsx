@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Twitter, Linkedin, Globe, BookOpen, ExternalLink,
-  Filter, Search, ChevronRight, Sparkles, Eye, ArrowUpDown,
+  Filter, Search, ChevronRight, Sparkles, Eye, ArrowUpDown, Trash2,
 } from "lucide-react";
 import { FaReddit } from "react-icons/fa";
 import { Input } from "@/components/ui/input";
@@ -53,6 +53,7 @@ export function Queue() {
   const [platformFilter, setPlatformFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState("newest");
+  const [confirmDismissAll, setConfirmDismissAll] = useState(false);
   const { toast } = useToast();
 
   const { data: conversations, isLoading } = useQuery<Conversation[]>({
@@ -84,6 +85,18 @@ export function Queue() {
     onSuccess: (_, { conversationId }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/drafts/conversation", conversationId] });
       toast({ title: "Draft reply generated", description: "Review it in Reply Studio." });
+    },
+  });
+
+  const dismissAll = useMutation({
+    mutationFn: (ids: string[]) =>
+      apiRequest("DELETE", "/api/conversations/batch", { ids }).then(r => r.json()),
+    onSuccess: (data: any) => {
+      setConfirmDismissAll(false);
+      setSelectedId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: `${data.deleted} conversation${data.deleted !== 1 ? "s" : ""} deleted` });
     },
   });
 
@@ -166,7 +179,48 @@ export function Queue() {
               </SelectContent>
             </Select>
           </div>
-          <p className="text-xs text-muted-foreground">{filtered.length} conversation{filtered.length !== 1 ? "s" : ""}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">{filtered.length} conversation{filtered.length !== 1 ? "s" : ""}</p>
+            {filtered.length > 0 && !confirmDismissAll && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 text-xs text-muted-foreground hover:text-red-500 px-2"
+                onClick={() => setConfirmDismissAll(true)}
+                data-testid="button-inbox-dismiss-all"
+              >
+                <Trash2 size={11} className="mr-1" /> Delete all
+              </Button>
+            )}
+          </div>
+          {/* Confirm dismiss all */}
+          {confirmDismissAll && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2.5">
+              <p className="text-xs text-red-600 dark:text-red-400 font-medium mb-2">
+                Delete {filtered.length} conversation{filtered.length !== 1 ? "s" : ""} permanently?
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="h-6 text-xs bg-red-600 hover:bg-red-700 text-white"
+                  onClick={() => dismissAll.mutate(filtered.map(c => c.id))}
+                  disabled={dismissAll.isPending}
+                  data-testid="button-inbox-confirm-dismiss-all"
+                >
+                  {dismissAll.isPending ? "Deleting…" : "Yes, delete all"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 text-xs"
+                  onClick={() => setConfirmDismissAll(false)}
+                  disabled={dismissAll.isPending}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* List */}
