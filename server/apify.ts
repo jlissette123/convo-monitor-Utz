@@ -352,8 +352,154 @@ export async function scrapeLinkedIn(
   }
 }
 
+// ── TikTok Hashtag Scraper ────────────────────────────────────────────────
+// Actor: clockworks~free-tiktok-scraper
+// Searches TikTok by hashtag — no login required.
+// We search Portland ME food and event hashtags.
+
+const TIKTOK_HASHTAGS = [
+  "portlandmaine",
+  "portlandme",
+  "portlandmaineeats",
+  "maineevents",
+  "mainemariners",
+  "portlandmainefood",
+];
+
+export async function scrapeTikTok(
+  brands: string[],
+  apiKey: string,
+): Promise<ApifyResult[]> {
+  const brandHashtag = (brands[0] ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const hashtags = [brandHashtag, ...TIKTOK_HASHTAGS].filter(Boolean);
+
+  const input = {
+    hashtags,
+    resultsPerPage: 15,
+    shouldDownloadVideos: false,
+    shouldDownloadCovers: false,
+    shouldDownloadSubtitles: false,
+    shouldDownloadSlideshowImages: false,
+  };
+
+  try {
+    log(`Apify TikTok: scraping hashtags [${hashtags.slice(0, 4).join(", ")}…]`, "apify");
+
+    const res = await fetch(
+      `${APIFY_BASE}/clockworks~free-tiktok-scraper/run-sync-get-dataset-items?token=${apiKey}&waitForFinish=${WAIT_SECS}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+
+    if (!res.ok) {
+      log(`Apify TikTok error: ${res.status} ${await res.text().catch(() => "")}`, "apify");
+      return [];
+    }
+
+    const items = await res.json() as Array<Record<string, any>>;
+    log(`Apify TikTok: received ${items.length} raw items`, "apify");
+
+    return items
+      .filter(item => item.webVideoUrl && item.text)
+      .map(item => {
+        const text: string = item.text ?? "";
+        const likes: number = item.diggCount ?? 0;
+        const plays: number = item.playCount ?? 0;
+        const author: string = item.authorMeta?.name ?? "tiktok user";
+        const score = Math.min(0.99, (likes + plays / 1000) / 10000);
+        return {
+          url: item.webVideoUrl as string,
+          title: `TikTok @${author} — ${text.slice(0, 60)}`,
+          content: text.slice(0, 500),
+          platform: "tiktok" as const,
+          score,
+        };
+      });
+  } catch (err) {
+    log(`Apify TikTok exception: ${err}`, "apify");
+    return [];
+  }
+}
+
+// ── Twitter/X Tweet Scraper ───────────────────────────────────────────────
+// Actor: apidojo~tweet-scraper
+// Searches tweets by keyword — no login required.
+// $0.40 per 1,000 tweets.
+
+const TWITTER_SEARCH_TERMS = [
+  "Portland Maine restaurant",
+  "Portland ME food",
+  "Portland Maine events",
+  "Maine Mariners",
+  "Hearts of Pine Portland",
+  "Portland Maine concert",
+];
+
+export async function scrapeTweets(
+  brands: string[],
+  apiKey: string,
+): Promise<ApifyResult[]> {
+  const primaryBrand = brands[0] ?? "";
+  const searchTerms = [
+    `"${primaryBrand}"`,
+    ...TWITTER_SEARCH_TERMS,
+  ].slice(0, 6);
+
+  const input = {
+    searchTerms,
+    maxItems: 15,           // per search term
+    tweetLanguage: "en",
+    includeSearchTerms: false,
+  };
+
+  try {
+    log(`Apify Twitter: searching [${searchTerms.slice(0, 3).join(", ")}…]`, "apify");
+
+    const res = await fetch(
+      `${APIFY_BASE}/apidojo~tweet-scraper/run-sync-get-dataset-items?token=${apiKey}&waitForFinish=${WAIT_SECS}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+
+    if (!res.ok) {
+      log(`Apify Twitter error: ${res.status} ${await res.text().catch(() => "")}`, "apify");
+      return [];
+    }
+
+    const items = await res.json() as Array<Record<string, any>>;
+    log(`Apify Twitter: received ${items.length} raw items`, "apify");
+
+    return items
+      .filter(item => item.url && item.text)
+      .map(item => {
+        const text: string = item.text ?? "";
+        const likes: number = item.likeCount ?? 0;
+        const retweets: number = item.retweetCount ?? 0;
+        const replies: number = item.replyCount ?? 0;
+        const author: string = item.author?.userName ?? "twitter user";
+        const score = Math.min(0.99, (likes + retweets * 2 + replies) / 5000);
+        return {
+          url: item.url as string,
+          title: `Tweet @${author} — ${text.slice(0, 60)}`,
+          content: text.slice(0, 500),
+          platform: "twitter" as const,
+          score,
+        };
+      });
+  } catch (err) {
+    log(`Apify Twitter exception: ${err}`, "apify");
+    return [];
+  }
+}
+
 // ── Combined Apify refresh ─────────────────────────────────────────────────
-// Runs all four scrapers in parallel and returns merged results.
+// Runs all six scrapers in parallel and returns merged results.
 // Called from the main Tavily refresh cycle in tavily.ts.
 
 export async function runApifyRefresh(
@@ -366,18 +512,20 @@ export async function runApifyRefresh(
     return [];
   }
 
-  log("Starting Apify refresh (Instagram + LinkedIn + YouTube + Google)…", "apify");
+  log("Starting Apify refresh (Instagram + LinkedIn + TikTok + Twitter + YouTube + Google)…", "apify");
 
-  // Run all four in parallel
-  const [instagram, linkedin, youtube, google] = await Promise.all([
+  // Run all six in parallel
+  const [instagram, linkedin, tiktok, twitter, youtube, google] = await Promise.all([
     scrapeInstagram(brands, apiKey, keywords),
     scrapeLinkedIn(brands, keywords, apiKey),
+    scrapeTikTok(brands, apiKey),
+    scrapeTweets(brands, apiKey),
     scrapeYouTube(brands, keywords, apiKey),
     scrapeGoogleSearch(brands, keywords, apiKey),
   ]);
 
-  const all = [...instagram, ...linkedin, ...youtube, ...google];
-  log(`Apify refresh complete — ${instagram.length} Instagram, ${linkedin.length} LinkedIn, ${youtube.length} YouTube, ${google.length} Google (${all.length} total)`, "apify");
+  const all = [...instagram, ...linkedin, ...tiktok, ...twitter, ...youtube, ...google];
+  log(`Apify refresh complete — ${instagram.length} IG, ${linkedin.length} LI, ${tiktok.length} TikTok, ${twitter.length} Twitter, ${youtube.length} YT, ${google.length} Google (${all.length} total)`, "apify");
 
   return all;
 }
