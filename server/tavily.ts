@@ -232,6 +232,39 @@ const BLOCKED_DOMAINS = [
   "eatthismuch.com",
 ];
 
+// ── Content contamination blocklist ─────────────────────────────────────────
+// Hard-coded topic phrases that must never appear in this monitor's inbox.
+// Added when cross-brand Apify scraper contamination was detected (v2.0.6).
+// These are evaluated against the full text of each result before ingest.
+//
+// IMPORTANT: These are general-purpose noise filters (sports teams, unrelated
+// local events). They are NOT brand-specific — they apply to ALL brand deploys.
+// Brand-specific filtering is handled by env vars (VITE_BRAND_MONITORED_BRANDS).
+const CONTENT_BLOCKLIST_PHRASES = [
+  "maine mariners",
+  "hearts of pine",
+  "portland, me",
+  "portland, maine",
+  "portland maine",
+  "portlandmaine",
+  "portlandme",
+  "portlandmaineeats",
+  "portlandmefood",
+  "mainemariners",
+  "fitzpatrick stadium",
+  "echl",            // East Coast Hockey League
+  "usl league one",  // soccer division — not relevant to any brand monitor
+];
+
+/**
+ * Returns true if the result content contains a known contamination phrase.
+ * Case-insensitive. Used to block cross-brand scraper pollution at ingest time.
+ */
+function isContaminatedContent(text: string): boolean {
+  const lower = text.toLowerCase();
+  return CONTENT_BLOCKLIST_PHRASES.some(phrase => lower.includes(phrase));
+}
+
 /**
  * Returns true if the URL should be blocked (retail/e-commerce/noise).
  * Matched against hostname to avoid false positives on blog posts that
@@ -324,6 +357,11 @@ async function ingestResults(
     }
 
     const text = `${result.title} ${result.content}`.slice(0, 800);
+
+    if (isContaminatedContent(text)) {
+      log(`Skipped contaminated content: ${result.url}`, "ingest");
+      continue;
+    }
     const { sentiment, score } = await scoreSentiment(text);
     const platform = detectPlatform(result.url);
     const priority = priorityFromSentimentAndEngagement(sentiment, score);

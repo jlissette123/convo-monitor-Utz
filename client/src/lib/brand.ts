@@ -13,7 +13,7 @@
  */
 
 /** Semantic build version — bump when forcing a cache-bust deploy. */
-export const BUILD_VERSION = "2.0.6";
+export const BUILD_VERSION = "2.0.7";
 
 /** Default teal primary color (light mode). Exported for reference/testing. */
 export const DEFAULT_PRIMARY = { h: 183, s: 98, l: 22 } as const;
