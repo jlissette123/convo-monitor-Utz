@@ -9,17 +9,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Twitter, Linkedin, Globe, BookOpen, ExternalLink,
   TrendingDown, ChevronRight, Sparkles, Eye, AlertTriangle, Trash2,
+  Youtube,
 } from "lucide-react";
-import { FaReddit } from "react-icons/fa";
+import { FaReddit, FaInstagram, FaTiktok } from "react-icons/fa";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 
 function PlatformIcon({ platform }: { platform: string }) {
   const cls = `platform-${platform}`;
-  if (platform === "twitter")  return <Twitter  size={14} className={cls} />;
-  if (platform === "reddit")   return <FaReddit  size={14} className={cls} />;
-  if (platform === "linkedin") return <Linkedin  size={14} className={cls} />;
-  if (platform === "blog")     return <BookOpen  size={14} className={cls} />;
+  if (platform === "twitter")   return <Twitter     size={14} className={cls} />;
+  if (platform === "reddit")    return <FaReddit    size={14} className={cls} />;
+  if (platform === "linkedin")  return <Linkedin    size={14} className={cls} />;
+  if (platform === "blog")      return <BookOpen    size={14} className={cls} />;
+  if (platform === "instagram") return <FaInstagram size={14} className={cls} />;
+  if (platform === "tiktok")    return <FaTiktok    size={14} className={cls} />;
+  if (platform === "youtube")   return <Youtube     size={14} className={cls} />;
   return <Globe size={14} className={cls} />;
 }
 

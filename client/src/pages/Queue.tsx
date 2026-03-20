@@ -9,18 +9,22 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Twitter, Linkedin, Globe, BookOpen, ExternalLink,
   Filter, Search, ChevronRight, Sparkles, Eye, ArrowUpDown, Trash2,
+  Youtube, Music2,
 } from "lucide-react";
-import { FaReddit } from "react-icons/fa";
+import { FaReddit, FaInstagram, FaTiktok } from "react-icons/fa";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 
 function PlatformIcon({ platform }: { platform: string }) {
   const cls = `platform-${platform}`;
-  if (platform === "twitter") return <Twitter size={14} className={cls} />;
-  if (platform === "reddit")  return <FaReddit size={14} className={cls} />;
-  if (platform === "linkedin") return <Linkedin size={14} className={cls} />;
-  if (platform === "blog") return <BookOpen size={14} className={cls} />;
+  if (platform === "twitter")   return <Twitter size={14} className={cls} />;
+  if (platform === "reddit")    return <FaReddit size={14} className={cls} />;
+  if (platform === "linkedin")  return <Linkedin size={14} className={cls} />;
+  if (platform === "blog")      return <BookOpen size={14} className={cls} />;
+  if (platform === "instagram") return <FaInstagram size={14} className={cls} />;
+  if (platform === "tiktok")    return <FaTiktok size={14} className={cls} />;
+  if (platform === "youtube")   return <Youtube size={14} className={cls} />;
   return <Globe size={14} className={cls} />;
 }
 
@@ -159,9 +163,12 @@ export function Queue() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All platforms</SelectItem>
-                <SelectItem value="twitter">Twitter</SelectItem>
+                <SelectItem value="twitter">Twitter / X</SelectItem>
                 <SelectItem value="reddit">Reddit</SelectItem>
                 <SelectItem value="linkedin">LinkedIn</SelectItem>
+                <SelectItem value="instagram">Instagram</SelectItem>
+                <SelectItem value="tiktok">TikTok</SelectItem>
+                <SelectItem value="youtube">YouTube</SelectItem>
                 <SelectItem value="blog">Blog</SelectItem>
               </SelectContent>
             </Select>
