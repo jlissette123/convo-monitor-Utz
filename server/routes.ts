@@ -77,6 +77,43 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
+  // ── Admin: purge conversations matching keyword list ─────────────────────
+  // POST body: { keywords: string[] } — deletes any conversation whose
+  // content, title (authorName), or URL contains ANY of the given strings.
+  // Case-insensitive. Used to clean up cross-brand contamination.
+  app.delete("/api/conversations/purge-by-keywords", async (req, res) => {
+    try {
+      const { keywords } = req.body as { keywords: string[] };
+      if (!Array.isArray(keywords) || keywords.length === 0)
+        return res.status(400).json({ error: "keywords array required" });
+
+      const lower = keywords.map(k => k.toLowerCase());
+      const all = await getStorage().getConversations();
+
+      const toDelete = all
+        .filter(c => {
+          const haystack = [
+            c.content ?? "",
+            c.authorName ?? "",
+            c.url ?? "",
+            (c.brandMentions ?? []).join(" "),
+            c.flaggedReason ?? "",
+          ].join(" ").toLowerCase();
+          return lower.some(kw => haystack.includes(kw));
+        })
+        .map(c => c.id);
+
+      if (toDelete.length === 0)
+        return res.json({ deleted: 0, message: "No matching conversations found" });
+
+      const deleted = await getStorage().deleteConversations(toDelete);
+      log(`Admin purge: deleted ${deleted} conversations matching [${keywords.join(", ")}]`, "admin");
+      res.json({ deleted, ids: toDelete });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
   app.delete("/api/conversations/batch", async (req, res) => {
     try {
       const { ids } = req.body as { ids: string[] };
