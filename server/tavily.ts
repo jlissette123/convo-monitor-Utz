@@ -9,6 +9,7 @@
 
 import { getStorage } from "./storage";
 import { log } from "./index";
+import { runApifyRefresh } from "./apify";
 
 const TAVILY_API_URL = "https://api.tavily.com/search";
 const REFRESH_INTERVAL_MS = 3 * 60 * 60 * 1000; // 3 hours
@@ -442,10 +443,23 @@ export async function runTavilyRefresh(
     }
   }
 
+  // ── Apify social scan (Instagram, YouTube, Google) ──────────────────────
+  const apifyKey = process.env.APIFY_API_KEY;
+  if (apifyKey) {
+    const apifyResults = await runApifyRefresh(brands, keywords, apifyKey);
+    if (apifyResults.length > 0) {
+      const apifyCount = await ingestResults(apifyResults, primaryBrand, brands, apiKey);
+      if (apifyCount > 0) {
+        log(`Ingested ${apifyCount} new mentions from Apify (Instagram/YouTube/Google)`, "apify");
+        totalIngested += apifyCount;
+      }
+    }
+  }
+
   if (totalIngested > 0) {
     await storage.addActivityEntry({
       type: "capture",
-      description: `${totalIngested} new conversation${totalIngested > 1 ? "s" : ""} captured via Tavily web search`,
+      description: `${totalIngested} new conversation${totalIngested > 1 ? "s" : ""} captured via Tavily + Apify`,
       conversationId: null,
       userId: null,
       timestamp: new Date().toISOString(),
