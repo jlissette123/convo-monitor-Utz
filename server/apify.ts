@@ -34,17 +34,49 @@ export interface ApifyResult {
 // We query brand-name-derived hashtags (e.g. "utzsnacks", "utz")
 // and top competitor hashtags from the monitored brands list.
 
+// Portland ME location hashtags — always included for local market intelligence
+const LOCATION_HASHTAGS = [
+  "portlandme",
+  "portlandmaine",
+  "portlandmaineeats",
+  "portlandmefood",
+  "mainemariners",
+  "maineCeltics",
+  "hadlockfield",
+  "portlandevents",
+  "maineevents",
+  "portlandmainefood",
+  "heartofpine",
+  "portlandmainelife",
+  "livemusicmaine",
+];
+
 export async function scrapeInstagram(
   brands: string[],
   apiKey: string,
+  keywords: string[] = [],
 ): Promise<ApifyResult[]> {
   const primaryBrand = brands[0] ?? "";
 
-  // Build hashtags from brand names: remove spaces, lowercase
-  const hashtags = brands
-    .slice(0, 4) // limit to top 4 brands to control cost
+  // Build hashtags: brand names + location hashtags
+  // Brand hashtags catch direct brand mentions on Instagram
+  // Location hashtags catch Portland ME restaurant/event discovery
+  const brandHashtags = brands
+    .slice(0, 2) // limit brand hashtags to top 2
     .map(b => b.toLowerCase().replace(/[^a-z0-9]/g, ""))
     .filter(Boolean);
+
+  // Use location hashtags (always) + any keyword-derived hashtags
+  const keywordHashtags = keywords
+    .slice(0, 3)
+    .map(k => k.toLowerCase().replace(/[^a-z0-9]/g, ""))
+    .filter(h => h.length > 4); // skip very short ones
+
+  const hashtags = [
+    ...brandHashtags,
+    ...LOCATION_HASHTAGS,
+    ...keywordHashtags,
+  ].filter((v, i, arr) => arr.indexOf(v) === i); // deduplicate
 
   if (hashtags.length === 0) return [];
 
@@ -91,9 +123,12 @@ export async function scrapeInstagram(
         };
       })
       .filter(r => {
-        // Only keep posts that actually mention one of the monitored brands
+        // Keep posts that mention a monitored brand OR come from a location hashtag scan
+        // (Portland ME hashtag posts are valuable even without a direct brand mention)
         const lower = r.content.toLowerCase();
-        return brands.some(b => lower.includes(b.toLowerCase().split(" ")[0]));
+        const mentionsBrand = brands.some(b => lower.includes(b.toLowerCase().split(" ")[0]));
+        const isLocationPost = LOCATION_HASHTAGS.some(tag => lower.includes(tag.toLowerCase()));
+        return mentionsBrand || isLocationPost || true; // accept all — location context is always valuable
       });
   } catch (err) {
     log(`Apify Instagram exception: ${err}`, "apify");
@@ -258,7 +293,7 @@ export async function runApifyRefresh(
 
   // Run all three in parallel
   const [instagram, youtube, google] = await Promise.all([
-    scrapeInstagram(brands, apiKey),
+    scrapeInstagram(brands, apiKey, keywords),
     scrapeYouTube(brands, keywords, apiKey),
     scrapeGoogleSearch(brands, keywords, apiKey),
   ]);
