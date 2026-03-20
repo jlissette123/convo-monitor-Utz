@@ -412,6 +412,7 @@ export async function runTavilyRefresh(
   brands: string[],
   keywords: string[],
   apiKey: string,
+  sinceDate?: string, // ISO string — only fetch content published after this date
 ): Promise<void> {
   if (!apiKey) {
     log("TAVILY_API_KEY not set — skipping refresh", "tavily");
@@ -419,10 +420,17 @@ export async function runTavilyRefresh(
   }
 
   const primaryBrand = brands[0] ?? "Brand";
-  log(`Starting brand mention refresh for "${primaryBrand}" (${brands.length} brands)`, "tavily");
+  const sinceLabel = sinceDate ? ` (since ${new Date(sinceDate).toLocaleTimeString()})` : "";
+  log(`Starting brand mention refresh for "${primaryBrand}" (${brands.length} brands)${sinceLabel}`, "tavily");
 
   const storage = getStorage();
   let totalIngested = 0;
+
+  // Build a recency qualifier for Tavily queries — biases results toward recent content
+  // Tavily doesn't support strict date filters but appending a date string helps ranking
+  const recencyHint = sinceDate
+    ? ` after:${new Date(sinceDate).toISOString().slice(0, 10)}`
+    : "";
 
   // Search for primary brand + top competitors (limit to 4 queries to stay within rate limits)
   const searchTargets = [
@@ -433,7 +441,7 @@ export async function runTavilyRefresh(
 
   for (const target of searchTargets) {
     const results = await searchBrandMentions(
-      `"${target}" review OR mention OR discussion`,
+      `"${target}" review OR mention OR discussion${recencyHint}`,
       apiKey,
     );
     const count = await ingestResults(results, primaryBrand, brands, apiKey);
@@ -443,14 +451,14 @@ export async function runTavilyRefresh(
     }
   }
 
-  // ── Apify social scan (Instagram, YouTube, Google) ──────────────────────
+  // ── Apify social scan (Instagram, LinkedIn, TikTok, Twitter, YouTube, Google) ──
   const apifyKey = process.env.APIFY_API_KEY;
   if (apifyKey) {
-    const apifyResults = await runApifyRefresh(brands, keywords, apifyKey);
+    const apifyResults = await runApifyRefresh(brands, keywords, apifyKey, sinceDate);
     if (apifyResults.length > 0) {
       const apifyCount = await ingestResults(apifyResults, primaryBrand, brands, apiKey);
       if (apifyCount > 0) {
-        log(`Ingested ${apifyCount} new mentions from Apify (Instagram/YouTube/Google)`, "apify");
+        log(`Ingested ${apifyCount} new mentions from Apify (Instagram/LinkedIn/TikTok/Twitter/YouTube/Google)`, "apify");
         totalIngested += apifyCount;
       }
     }
@@ -488,8 +496,10 @@ export function startTavilyScheduler(
     schedulerState.isRunning = true;
     const next = new Date(Date.now() + REFRESH_INTERVAL_MS);
     schedulerState.nextRunAt = next.toISOString();
+    // Pass lastRunAt so each scraper only fetches content newer than the previous scan
+    const sinceDate = schedulerState.lastRunAt ?? undefined;
     try {
-      await runTavilyRefresh(brands, keywords, apiKey);
+      await runTavilyRefresh(brands, keywords, apiKey, sinceDate);
       schedulerState.lastRunAt = new Date().toISOString();
       schedulerState.totalRuns += 1;
     } catch (err) {
@@ -654,7 +664,9 @@ export async function triggerManualRefresh(
     // Capture count by checking before/after
     const storage = getStorage();
     const before = (await storage.getConversations()).length;
-    await runTavilyRefresh(brands, keywords, apiKey);
+    // Pass lastRunAt so manual scans also only fetch content newer than the previous scan
+    const sinceDate = schedulerState.lastRunAt ?? undefined;
+    await runTavilyRefresh(brands, keywords, apiKey, sinceDate);
     const after = (await storage.getConversations()).length;
     const ingested = after - before;
     schedulerState.lastIngestedCount = ingested;

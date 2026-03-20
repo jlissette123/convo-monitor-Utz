@@ -293,6 +293,7 @@ export async function scrapeLinkedIn(
   brands: string[],
   keywords: string[],
   apiKey: string,
+  sinceDate?: string,
 ): Promise<ApifyResult[]> {
   // Combine Portland ME queries with brand name query
   const primaryBrand = brands[0] ?? "";
@@ -301,11 +302,16 @@ export async function scrapeLinkedIn(
     ...LINKEDIN_SEARCH_QUERIES,
   ].slice(0, 6); // LinkedIn caps queries, stay conservative
 
+  // Dynamically set postedLimit based on sinceDate
+  // If we have a lastRunAt, use '24h' (covers a full 3-hour cycle safely)
+  // Otherwise fall back to 'week' for the first-ever run
+  const postedLimit = sinceDate ? "24h" : "week";
+
   const input = {
     searchQueries,
     maxPosts: 10,        // per query
     sortBy: "date",      // newest first
-    postedLimit: "week", // only posts from last week — keep it fresh
+    postedLimit,
     scrapeComments: false,
     scrapeReactions: false,
   };
@@ -441,6 +447,7 @@ const TWITTER_SEARCH_TERMS = [
 export async function scrapeTweets(
   brands: string[],
   apiKey: string,
+  sinceDate?: string,
 ): Promise<ApifyResult[]> {
   const primaryBrand = brands[0] ?? "";
   const searchTerms = [
@@ -448,11 +455,17 @@ export async function scrapeTweets(
     ...TWITTER_SEARCH_TERMS,
   ].slice(0, 6);
 
-  const input = {
+  // Use sinceDate for Twitter's native start filter — only fetch tweets after last run
+  const startDate = sinceDate
+    ? new Date(sinceDate).toISOString().slice(0, 10) // YYYY-MM-DD format
+    : undefined;
+
+  const input: Record<string, unknown> = {
     searchTerms,
     maxItems: 15,           // per search term
     tweetLanguage: "en",
     includeSearchTerms: false,
+    ...(startDate ? { start: startDate } : {}),
   };
 
   try {
@@ -506,20 +519,22 @@ export async function runApifyRefresh(
   brands: string[],
   keywords: string[],
   apiKey: string,
+  sinceDate?: string, // ISO string — only fetch content published after this date
 ): Promise<Array<{ url: string; title: string; content: string; score: number }>> {
   if (!apiKey) {
     log("APIFY_API_KEY not set — skipping Apify refresh", "apify");
     return [];
   }
 
-  log("Starting Apify refresh (Instagram + LinkedIn + TikTok + Twitter + YouTube + Google)…", "apify");
+  const sinceLabel = sinceDate ? ` since ${new Date(sinceDate).toLocaleTimeString()}` : " (first run — no date filter)";
+  log(`Starting Apify refresh (Instagram + LinkedIn + TikTok + Twitter + YouTube + Google)${sinceLabel}…`, "apify");
 
-  // Run all six in parallel
+  // Run all six in parallel, passing sinceDate where supported
   const [instagram, linkedin, tiktok, twitter, youtube, google] = await Promise.all([
-    scrapeInstagram(brands, apiKey, keywords),
-    scrapeLinkedIn(brands, keywords, apiKey),
-    scrapeTikTok(brands, apiKey),
-    scrapeTweets(brands, apiKey),
+    scrapeInstagram(brands, apiKey, keywords),           // hashtag-based, always returns latest
+    scrapeLinkedIn(brands, keywords, apiKey, sinceDate),
+    scrapeTikTok(brands, apiKey),                        // hashtag-based, always returns latest
+    scrapeTweets(brands, apiKey, sinceDate),
     scrapeYouTube(brands, keywords, apiKey),
     scrapeGoogleSearch(brands, keywords, apiKey),
   ]);
