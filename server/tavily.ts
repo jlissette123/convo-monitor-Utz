@@ -470,12 +470,14 @@ export async function runTavilyRefresh(
     ? ` after:${new Date(sinceDate).toISOString().slice(0, 10)}`
     : "";
 
-  // Search for primary brand + top competitors (limit to 4 queries to stay within rate limits)
+  // Search ALL brands + ALL keywords — full coverage, no arbitrary cap.
+  // Queries run sequentially to avoid hammering the Tavily API simultaneously.
   const searchTargets = [
-    primaryBrand,
-    ...brands.slice(1, 3),
-    ...keywords.slice(0, 1),
-  ].filter(Boolean).slice(0, 4);
+    ...brands,      // all 28 brands
+    ...keywords,    // all 4 keywords
+  ].filter(Boolean);
+
+  log(`Tavily: running ${searchTargets.length} search queries`, "tavily");
 
   for (const target of searchTargets) {
     const results = await searchBrandMentions(
