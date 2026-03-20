@@ -275,8 +275,85 @@ export async function scrapeGoogleSearch(
   }
 }
 
+// ── LinkedIn Post Search Scraper ─────────────────────────────────────────
+// Actor: harvestapi~linkedin-post-search (no cookies required)
+// Searches public LinkedIn posts by keyword.
+// We search Portland ME food/event keywords to capture local market intel.
+
+const LINKEDIN_SEARCH_QUERIES = [
+  "Portland Maine restaurant",
+  "Portland ME food scene",
+  "Portland Maine events",
+  "Maine Mariners",
+  "Hearts of Pine",
+  "Cross Insurance Arena Portland",
+];
+
+export async function scrapeLinkedIn(
+  brands: string[],
+  keywords: string[],
+  apiKey: string,
+): Promise<ApifyResult[]> {
+  // Combine Portland ME queries with brand name query
+  const primaryBrand = brands[0] ?? "";
+  const searchQueries = [
+    `"${primaryBrand}"`,
+    ...LINKEDIN_SEARCH_QUERIES,
+  ].slice(0, 6); // LinkedIn caps queries, stay conservative
+
+  const input = {
+    searchQueries,
+    maxPosts: 10,        // per query
+    sortBy: "date",      // newest first
+    postedLimit: "week", // only posts from last week — keep it fresh
+    scrapeComments: false,
+    scrapeReactions: false,
+  };
+
+  try {
+    log(`Apify LinkedIn: searching [${searchQueries.slice(0, 3).join(", ")}…]`, "apify");
+
+    const res = await fetch(
+      `${APIFY_BASE}/harvestapi~linkedin-post-search/run-sync-get-dataset-items?token=${apiKey}&waitForFinish=${WAIT_SECS}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+
+    if (!res.ok) {
+      log(`Apify LinkedIn error: ${res.status} ${await res.text().catch(() => "")}`, "apify");
+      return [];
+    }
+
+    const items = await res.json() as Array<Record<string, any>>;
+    log(`Apify LinkedIn: received ${items.length} raw items`, "apify");
+
+    return items
+      .filter(item => item.url && (item.text || item.content))
+      .map(item => {
+        const text: string = item.text ?? item.content ?? "";
+        const reactions: number = item.numLikes ?? item.reactions ?? 0;
+        const comments: number = item.numComments ?? item.comments ?? 0;
+        const score = Math.min(0.99, (reactions + comments * 2) / 5000);
+        const authorName: string = item.authorName ?? item.author?.name ?? "LinkedIn user";
+        return {
+          url: item.url as string,
+          title: `LinkedIn — ${authorName}: ${text.slice(0, 60)}`,
+          content: text.slice(0, 500),
+          platform: "linkedin" as const,
+          score,
+        };
+      });
+  } catch (err) {
+    log(`Apify LinkedIn exception: ${err}`, "apify");
+    return [];
+  }
+}
+
 // ── Combined Apify refresh ─────────────────────────────────────────────────
-// Runs all three scrapers in parallel and returns merged results.
+// Runs all four scrapers in parallel and returns merged results.
 // Called from the main Tavily refresh cycle in tavily.ts.
 
 export async function runApifyRefresh(
@@ -289,17 +366,18 @@ export async function runApifyRefresh(
     return [];
   }
 
-  log("Starting Apify refresh (Instagram + YouTube + Google)…", "apify");
+  log("Starting Apify refresh (Instagram + LinkedIn + YouTube + Google)…", "apify");
 
-  // Run all three in parallel
-  const [instagram, youtube, google] = await Promise.all([
+  // Run all four in parallel
+  const [instagram, linkedin, youtube, google] = await Promise.all([
     scrapeInstagram(brands, apiKey, keywords),
+    scrapeLinkedIn(brands, keywords, apiKey),
     scrapeYouTube(brands, keywords, apiKey),
     scrapeGoogleSearch(brands, keywords, apiKey),
   ]);
 
-  const all = [...instagram, ...youtube, ...google];
-  log(`Apify refresh complete — ${instagram.length} Instagram, ${youtube.length} YouTube, ${google.length} Google (${all.length} total)`, "apify");
+  const all = [...instagram, ...linkedin, ...youtube, ...google];
+  log(`Apify refresh complete — ${instagram.length} Instagram, ${linkedin.length} LinkedIn, ${youtube.length} YouTube, ${google.length} Google (${all.length} total)`, "apify");
 
   return all;
 }
