@@ -162,7 +162,7 @@ export function Dashboard() {
               <div className="flex items-center gap-1.5 text-xs">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${tavilyStatus?.isRunning ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
                 <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                  {tavilyStatus?.isRunning ? "Scanning now…" : "Live monitoring active · every 3 hours"}
+                  {tavilyStatus?.isRunning ? "Scanning now…" : "Live monitoring active · every 24 hours"}
                 </span>
               </div>
               {!tavilyStatus?.isRunning && countdown && (
