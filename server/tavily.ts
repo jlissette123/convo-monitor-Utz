@@ -1,6 +1,6 @@
 /**
  * Tavily integration — brand mention search + conversation ingestion
- * Runs on startup and every 24 hours automatically.
+ * Runs on startup and every 48 hours automatically.
  *
  * Sentiment scoring:
  *   Primary  — Claude Haiku (via ANTHROPIC_API_KEY) for contextual accuracy
@@ -12,7 +12,7 @@ import { log } from "./index";
 import { runApifyRefresh } from "./apify";
 
 const TAVILY_API_URL = "https://api.tavily.com/search";
-const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const REFRESH_INTERVAL_MS = 48 * 60 * 60 * 1000; // 48 hours
 
 // ── Claude Haiku sentiment scorer ─────────────────────────────────────────
 async function scoreSentimentLLM(
@@ -555,10 +555,10 @@ export function startTavilyScheduler(
   // Run immediately on startup
   run();
 
-  // Then every 24 hours
+  // Then every 48 hours
   setInterval(run, REFRESH_INTERVAL_MS);
 
-  log(`Tavily scheduler started — refreshing every 24 hours`, "tavily");
+  log(`Tavily scheduler started — refreshing every 48 hours`, "tavily");
 }
 
 // ── Culture Monitor Scan ──────────────────────────────────────────────────
