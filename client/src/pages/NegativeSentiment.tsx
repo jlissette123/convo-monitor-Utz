@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Twitter, Linkedin, Globe, BookOpen, ExternalLink,
   TrendingDown, ChevronRight, Sparkles, Eye, AlertTriangle, Trash2,
-  Youtube,
+  Youtube, Search, X,
 } from "lucide-react";
 import { FaReddit, FaInstagram, FaTiktok } from "react-icons/fa";
 import { useToast } from "@/hooks/use-toast";
@@ -45,6 +45,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function NegativeSentiment() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const { toast } = useToast();
 
   const { data: conversations, isLoading } = useQuery<Conversation[]>({
@@ -96,7 +97,19 @@ export function NegativeSentiment() {
     },
   });
 
-  const list = conversations ?? [];
+  const rawList = conversations ?? [];
+  const list = search.trim()
+    ? rawList.filter(c => {
+        const q = search.toLowerCase();
+        return (
+          c.content?.toLowerCase().includes(q) ||
+          c.authorHandle?.toLowerCase().includes(q) ||
+          c.authorName?.toLowerCase().includes(q) ||
+          c.platform?.toLowerCase().includes(q) ||
+          (c.tags ?? []).some(t => t.toLowerCase().includes(q))
+        );
+      })
+    : rawList;
   const selected = list.find(c => c.id === selectedId);
 
   return (
@@ -126,7 +139,9 @@ export function NegativeSentiment() {
             )}
           </div>
           <p className="text-xs text-muted-foreground">
-            {isLoading ? "Loading…" : `${list.length} negative conversation${list.length !== 1 ? "s" : ""} flagged for review`}
+            {isLoading ? "Loading…" : search.trim()
+              ? `${list.length} of ${rawList.length} negative conversations`
+              : `${list.length} negative conversation${list.length !== 1 ? "s" : ""} flagged for review`}
           </p>
           <div className="mt-2">
             <Link href="/queue">
@@ -135,6 +150,26 @@ export function NegativeSentiment() {
               </span>
             </Link>
           </div>
+          {/* Search bar */}
+          <div className="relative mt-3">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search conversations…"
+              className="w-full h-8 pl-8 pr-7 text-xs rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
           {/* Confirm dismiss all */}
           {confirmDismissAll && (
             <div className="mt-3 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2.5">
