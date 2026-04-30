@@ -12,7 +12,7 @@ import { log } from "./index";
 import { runApifyRefresh } from "./apify";
 
 const TAVILY_API_URL = "https://api.tavily.com/search";
-const REFRESH_INTERVAL_MS = 48 * 60 * 60 * 1000; // 48 hours
+const REFRESH_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days (once a month)
 
 // ── Claude Haiku sentiment scorer ─────────────────────────────────────────
 async function scoreSentimentLLM(
