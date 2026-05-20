@@ -491,17 +491,23 @@ export async function runTavilyRefresh(
     }
   }
 
-  // ── Apify social scan (Instagram, LinkedIn, TikTok, Twitter, YouTube, Google) ──
-  const apifyKey = process.env.APIFY_API_KEY;
-  if (apifyKey) {
-    const apifyResults = await runApifyRefresh(brands, keywords, apifyKey, sinceDate);
-    if (apifyResults.length > 0) {
-      const apifyCount = await ingestResults(apifyResults, primaryBrand, brands, apiKey);
-      if (apifyCount > 0) {
-        log(`Ingested ${apifyCount} new mentions from Apify (Instagram/LinkedIn/TikTok/Twitter/YouTube/Google)`, "apify");
-        totalIngested += apifyCount;
+  // ── Apify social scan — DISABLED to reduce API token usage ──
+  // To re-enable: remove the APIFY_DISABLED env var or uncomment the block below.
+  const apifyDisabled = process.env.APIFY_DISABLED === "true" || true; // hardcoded off
+  if (!apifyDisabled) {
+    const apifyKey = process.env.APIFY_API_KEY;
+    if (apifyKey) {
+      const apifyResults = await runApifyRefresh(brands, keywords, apifyKey, sinceDate);
+      if (apifyResults.length > 0) {
+        const apifyCount = await ingestResults(apifyResults, primaryBrand, brands, apiKey);
+        if (apifyCount > 0) {
+          log(`Ingested ${apifyCount} new mentions from Apify (Instagram/LinkedIn/TikTok/Twitter/YouTube/Google)`, "apify");
+          totalIngested += apifyCount;
+        }
       }
     }
+  } else {
+    log("Apify scan skipped — APIFY_DISABLED is set", "apify");
   }
 
   if (totalIngested > 0) {
