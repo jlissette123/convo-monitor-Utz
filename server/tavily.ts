@@ -1,6 +1,7 @@
 /**
  * Tavily integration — brand mention search + conversation ingestion
- * Runs on startup and then once every REFRESH_INTERVAL_MS (currently 30 days).
+ * Runs on startup and then once every REFRESH_INTERVAL_MS
+ * (SCAN_INTERVAL_DAYS env var, default 30 days).
  *
  * Sentiment scoring:
  *   Primary  — Claude Haiku (via ANTHROPIC_API_KEY) for contextual accuracy
@@ -12,7 +13,26 @@ import { log } from "./index";
 import { runApifyRefresh } from "./apify";
 
 const TAVILY_API_URL = "https://api.tavily.com/search";
-const REFRESH_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days (once a month)
+
+// Scan interval in days. Each deployment can set its own with the
+// SCAN_INTERVAL_DAYS environment variable; without it the default is 30 days.
+const DEFAULT_SCAN_INTERVAL_DAYS = 30;
+const MIN_SCAN_INTERVAL_DAYS = 1 / 24; // never scan more often than hourly
+
+function resolveScanIntervalDays(): number {
+  const raw = process.env.SCAN_INTERVAL_DAYS;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_SCAN_INTERVAL_DAYS;
+  const days = Number(raw);
+  if (!Number.isFinite(days) || days < MIN_SCAN_INTERVAL_DAYS) {
+    console.warn(
+      `[tavily] Ignoring invalid SCAN_INTERVAL_DAYS="${raw}" — using ${DEFAULT_SCAN_INTERVAL_DAYS} days`,
+    );
+    return DEFAULT_SCAN_INTERVAL_DAYS;
+  }
+  return days;
+}
+
+const REFRESH_INTERVAL_MS = Math.round(resolveScanIntervalDays() * 24 * 60 * 60 * 1000);
 
 // Node timers cannot wait longer than 2^31-1 ms (~24.8 days). A longer delay is
 // silently replaced with 1 ms, which made the 30-day interval fire continuously.
@@ -538,6 +558,8 @@ export async function runTavilyRefresh(
 }
 
 // ── Scheduler state (in-memory) ───────────────────────────────────────────
+export const SCAN_INTERVAL_LABEL = describeInterval(REFRESH_INTERVAL_MS);
+
 export const schedulerState = {
   lastRunAt: null as string | null,
   nextRunAt: null as string | null,
@@ -585,7 +607,7 @@ export function startTavilyScheduler(
     if (Number.isNaN(dueAt) || Date.now() >= dueAt) run();
   }, SCHEDULER_TICK_MS);
 
-  log(`Tavily scheduler started — refreshing every ${describeInterval(REFRESH_INTERVAL_MS)}`, "tavily");
+  log(`Tavily scheduler started — refreshing every ${SCAN_INTERVAL_LABEL}`, "tavily");
 }
 
 // ── Culture Monitor Scan ──────────────────────────────────────────────────
