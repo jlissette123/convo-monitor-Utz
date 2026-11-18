@@ -1,6 +1,6 @@
 /**
  * Tavily integration — brand mention search + conversation ingestion
- * Runs on startup and every 48 hours automatically.
+ * Runs on startup and then once every REFRESH_INTERVAL_MS (currently 30 days).
  *
  * Sentiment scoring:
  *   Primary  — Claude Haiku (via ANTHROPIC_API_KEY) for contextual accuracy
@@ -13,6 +13,20 @@ import { runApifyRefresh } from "./apify";
 
 const TAVILY_API_URL = "https://api.tavily.com/search";
 const REFRESH_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days (once a month)
+
+// Node timers cannot wait longer than 2^31-1 ms (~24.8 days). A longer delay is
+// silently replaced with 1 ms, which made the 30-day interval fire continuously.
+// The scheduler therefore wakes on a short tick and only scans when a run is due.
+const SCHEDULER_TICK_MS = Math.min(60 * 60 * 1000, REFRESH_INTERVAL_MS); // hourly at most
+
+function describeInterval(ms: number): string {
+  const hours = Math.round(ms / (60 * 60 * 1000));
+  if (hours % 24 === 0) {
+    const days = hours / 24;
+    return days === 1 ? "24 hours" : `${days} days`;
+  }
+  return hours === 1 ? "1 hour" : `${hours} hours`;
+}
 
 // ── Claude Haiku sentiment scorer ─────────────────────────────────────────
 async function scoreSentimentLLM(
@@ -539,6 +553,8 @@ export function startTavilyScheduler(
   apiKey: string,
 ): void {
   async function run() {
+    // Never start a second scan while one is still in progress
+    if (schedulerState.isRunning) return;
     schedulerState.isRunning = true;
     const next = new Date(Date.now() + REFRESH_INTERVAL_MS);
     schedulerState.nextRunAt = next.toISOString();
@@ -561,10 +577,15 @@ export function startTavilyScheduler(
   // Run immediately on startup
   run();
 
-  // Then every 48 hours
-  setInterval(run, REFRESH_INTERVAL_MS);
+  // Then wake on a short tick and scan only once the next run is due.
+  // (REFRESH_INTERVAL_MS itself is too long to hand to setInterval — see above.)
+  setInterval(() => {
+    if (schedulerState.isRunning) return;
+    const dueAt = schedulerState.nextRunAt ? Date.parse(schedulerState.nextRunAt) : NaN;
+    if (Number.isNaN(dueAt) || Date.now() >= dueAt) run();
+  }, SCHEDULER_TICK_MS);
 
-  log(`Tavily scheduler started — refreshing every 48 hours`, "tavily");
+  log(`Tavily scheduler started — refreshing every ${describeInterval(REFRESH_INTERVAL_MS)}`, "tavily");
 }
 
 // ── Culture Monitor Scan ──────────────────────────────────────────────────
