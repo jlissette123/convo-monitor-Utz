@@ -147,10 +147,10 @@ export function buildAssessmentPrompt(text: string, ctx: MentionContext): string
   lines.push(
     "",
     "Step 1 — relevance. The text is relevant only if it is genuinely about one of the monitored brands: the brand itself, its products, its company, or people discussing them.",
-    isKeywordSearch
-      ? "Because this was a category-topic search, a text that is clearly about that topic in the brands' own category also counts, even if it names no monitored brand."
-      : "A text about the general category that never refers to a monitored brand is NOT relevant.",
+    "People often shorten a brand name. A shorter everyday form of a listed name — the listed name without a generic word such as Snacks, Potato, Chips or Brand — still counts when the text is clearly about the same products.",
+    "A text about the general category, or about other brands in it, that never refers to a monitored brand is NOT relevant.",
     "A text that only shares a word or name with a brand — a different company, a restaurant, a place, a person, an event, an unrelated product — is NOT relevant.",
+    "A store, marketplace or brand-shop page that only lists a product for sale (price, pack size, nutrition facts, add to cart) is NOT relevant — it is a listing, not a mention. Reviews, articles, news, posts and discussions are.",
     "If the text does not make clear that it is about the monitored brand, answer not relevant.",
     "",
     "Step 2 — sentiment toward the brand (still fill this in when not relevant).",
@@ -232,8 +232,8 @@ async function assessMentionLLM(
 
 /**
  * Keyword relevance check used only when the Claude screener is unavailable.
- * A brand result must name the brand (or its leading word) and also use a
- * category word; a topic result must contain the topic itself.
+ * The text must name a monitored brand (or its leading word) and also use a
+ * category word.
  */
 export function isRelevantByKeywords(text: string, ctx: MentionContext): boolean {
   const haystack = text.toLowerCase();
@@ -248,10 +248,9 @@ export function isRelevantByKeywords(text: string, ctx: MentionContext): boolean
     const leadingWord = name.split(/\s+/)[0] ?? "";
     return haystack.includes(name) || (leadingWord.length >= 3 && haystack.includes(leadingWord));
   };
-  if (ctx.target && !ctx.brands.includes(ctx.target)) {
-    return haystack.includes(ctx.target.toLowerCase());
-  }
-  const candidates = ctx.target ? [ctx.target] : ctx.brands;
+  // A category-topic search (or a result with no known search target) may be
+  // about any monitored brand; a brand search must be about that brand.
+  const candidates = ctx.target && ctx.brands.includes(ctx.target) ? [ctx.target] : ctx.brands;
   return candidates.some(namesBrand) && hasCategoryWord;
 }
 
@@ -453,6 +452,12 @@ const BLOCKED_DOMAINS = [
   "kroger.com",
   "safeway.com",
   "albertsons.com",
+  "vons.com", "randalls.com", "acmemarkets.com", "starmarket.com", "jewelosco.com",
+  "shaws.com", "tomthumb.com", "pavilions.com",
+  "shoprite.com",
+  "costcobusinessdelivery.com",
+  "giantfood.com", "stopandshop.com", "foodlion.com", "meijer.com", "harristeeter.com",
+  "bjs.com",
   "publix.com",
   "heb.com",
   "wegmans.com",
