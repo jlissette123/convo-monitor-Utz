@@ -111,14 +111,14 @@ const RELEVANCE_EXCLUSIONS = (process.env.RELEVANCE_EXCLUSIONS ?? "").trim();
 
 type Sentiment = "positive" | "neutral" | "negative";
 
-interface MentionContext {
+export interface MentionContext {
   /** The brand or keyword whose search returned this result, when known. */
   target?: string;
   brands: string[];
   keywords: string[];
 }
 
-interface MentionAssessment {
+export interface MentionAssessment {
   relevant: boolean;
   /** Monitored brand the text is about, when the screener identified one. */
   brand: string | null;
@@ -197,11 +197,26 @@ export function parseAssessment(raw: string, brands: string[]): MentionAssessmen
   };
 }
 
-async function assessMentionLLM(
+export interface ScreenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** Result of one screener call. `error` means no verdict was reached. */
+export type ScreenOutcome =
+  | { kind: "verdict"; assessment: MentionAssessment; usage: ScreenUsage; rateLimit?: string }
+  | { kind: "error"; status: number; retryAfterMs?: number; message: string };
+
+/**
+ * Asks Claude Haiku for a verdict and reports failures instead of guessing.
+ * There is no keyword fallback here: callers that must not act on a guess
+ * (such as the review of already-stored conversations) use this directly.
+ */
+export async function screenMentionStrict(
   text: string,
   ctx: MentionContext,
   apiKey: string,
-): Promise<MentionAssessment | null> {
+): Promise<ScreenOutcome> {
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -215,19 +230,49 @@ async function assessMentionLLM(
         max_tokens: 200,
         messages: [{ role: "user", content: buildAssessmentPrompt(text, ctx) }],
       }),
+      // Do not let one stalled connection hold up a scan or a review
+      signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) {
-      log(`Anthropic API error ${res.status} — falling back to keyword relevance check`, "relevance");
-      return null;
+      const retryAfter = Number(res.headers.get("retry-after"));
+      return {
+        kind: "error",
+        status: res.status,
+        retryAfterMs: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined,
+        message: `Anthropic API error ${res.status}`,
+      };
     }
-    const data = await res.json() as { content: Array<{ type: string; text: string }> };
+    const data = await res.json() as {
+      content: Array<{ type: string; text: string }>;
+      usage?: { input_tokens?: number; output_tokens?: number };
+    };
     const assessment = parseAssessment(data.content?.[0]?.text ?? "", ctx.brands);
-    if (!assessment) log("Could not read relevance reply — falling back to keyword relevance check", "relevance");
-    return assessment;
+    if (!assessment) return { kind: "error", status: 200, message: "Could not read relevance reply" };
+    const requestLimit = res.headers.get("anthropic-ratelimit-requests-limit");
+    const tokenLimit = res.headers.get("anthropic-ratelimit-input-tokens-limit");
+    return {
+      kind: "verdict",
+      assessment,
+      usage: {
+        inputTokens: data.usage?.input_tokens ?? 0,
+        outputTokens: data.usage?.output_tokens ?? 0,
+      },
+      rateLimit: requestLimit ? `${requestLimit} requests/min, ${tokenLimit ?? "?"} input tokens/min` : undefined,
+    };
   } catch (err) {
-    log(`Relevance check error: ${err} — falling back to keyword relevance check`, "relevance");
-    return null;
+    return { kind: "error", status: 0, message: `Relevance check error: ${err}` };
   }
+}
+
+async function assessMentionLLM(
+  text: string,
+  ctx: MentionContext,
+  apiKey: string,
+): Promise<MentionAssessment | null> {
+  const outcome = await screenMentionStrict(text, ctx, apiKey);
+  if (outcome.kind === "verdict") return outcome.assessment;
+  log(`${outcome.message} — falling back to keyword relevance check`, "relevance");
+  return null;
 }
 
 /**
@@ -522,7 +567,7 @@ const CONTENT_BLOCKLIST_PHRASES = [
  * Returns true if the result content contains a known contamination phrase.
  * Case-insensitive. Used to block cross-brand scraper pollution at ingest time.
  */
-function isContaminatedContent(text: string): boolean {
+export function isContaminatedContent(text: string): boolean {
   const lower = text.toLowerCase();
   return CONTENT_BLOCKLIST_PHRASES.some(phrase => lower.includes(phrase));
 }
@@ -532,7 +577,7 @@ function isContaminatedContent(text: string): boolean {
  * Matched against hostname to avoid false positives on blog posts that
  * merely mention a retailer name.
  */
-function isBlockedDomain(url: string): boolean {
+export function isBlockedDomain(url: string): boolean {
   try {
     const hostname = new URL(url).hostname.replace(/^www\./, "");
     return BLOCKED_DOMAINS.some(blocked => {

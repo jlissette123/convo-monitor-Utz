@@ -3,11 +3,15 @@ import type { Server } from "http";
 import { getStorage } from "./storage";
 import { getBrandConfigFromProcess } from "@shared/brand-config";
 import { generateAIDraft, schedulerState, triggerManualRefresh, runCultureScan, SCAN_INTERVAL_LABEL } from "./tavily";
+import { registerRelevanceReviewRoutes } from "./relevance-review";
 // Use console.log directly here to avoid circular import with index.ts
 const log = (msg: string, src = "routes") => console.log(`${new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true })} [${src}] ${msg}`);
 
 export function registerRoutes(httpServer: Server, app: Express) {
   const cfg = getBrandConfigFromProcess();
+
+  // ── Relevance review of stored conversations (off unless ADMIN_TOKEN is set) ──
+  registerRelevanceReviewRoutes(app);
 
   // ── Brand Config ─────────────────────────────────────────────────────────
   app.get("/api/brand-config", (_req, res) => {
