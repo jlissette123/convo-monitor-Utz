@@ -34,9 +34,29 @@ function resolveScanIntervalDays(): number {
 
 const REFRESH_INTERVAL_MS = Math.round(resolveScanIntervalDays() * 24 * 60 * 60 * 1000);
 
-// Brand-mention scans only keep content published within this window.
-const SEARCH_WINDOW_HOURS = 24;
-const SEARCH_WINDOW_MS = SEARCH_WINDOW_HOURS * 60 * 60 * 1000;
+// Brand-mention scans only keep content published within the search window.
+// By default the window equals the scan interval, so each scan reviews the
+// period since the previous one. SEARCH_WINDOW_DAYS overrides it.
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function resolveSearchWindowDays(): number {
+  const fallback = Math.max(1, REFRESH_INTERVAL_MS / DAY_MS);
+  const raw = process.env.SEARCH_WINDOW_DAYS;
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const days = Number(raw);
+  if (!Number.isFinite(days) || days < 1) {
+    console.warn(`[tavily] Ignoring invalid SEARCH_WINDOW_DAYS="${raw}" — using ${fallback} days`);
+    return fallback;
+  }
+  return days;
+}
+
+const SEARCH_WINDOW_DAYS = resolveSearchWindowDays();
+const SEARCH_WINDOW_MS = Math.round(SEARCH_WINDOW_DAYS * DAY_MS);
+const SEARCH_WINDOW_LABEL = SEARCH_WINDOW_DAYS === 1 ? "24 hours" : `${SEARCH_WINDOW_DAYS} days`;
+// Tavily only offers coarse ranges; the exact window is enforced in code afterwards.
+const TAVILY_TIME_RANGE =
+  SEARCH_WINDOW_DAYS <= 1 ? "day" : SEARCH_WINDOW_DAYS <= 7 ? "week" : SEARCH_WINDOW_DAYS <= 31 ? "month" : "year";
 
 /**
  * True when a Tavily `published_date` falls inside the search window.
@@ -53,9 +73,9 @@ export function isWithinSearchWindow(
   if (Number.isNaN(published)) return false;
   if (published > now + 60 * 60 * 1000) return false; // dated in the future
   const cutoff = now - SEARCH_WINDOW_MS;
-  const dateOnly = published % (24 * 60 * 60 * 1000) === 0;
+  const dateOnly = published % DAY_MS === 0;
   if (dateOnly) {
-    const cutoffDayStart = cutoff - (cutoff % (24 * 60 * 60 * 1000));
+    const cutoffDayStart = cutoff - (cutoff % DAY_MS);
     return published >= cutoffDayStart;
   }
   return published >= cutoff;
@@ -73,6 +93,182 @@ function describeInterval(ms: number): string {
     return days === 1 ? "24 hours" : `${days} days`;
   }
   return hours === 1 ? "1 hour" : `${hours} hours`;
+}
+
+// ── Relevance screening ───────────────────────────────────────────────────
+// A search for a brand name also returns pages that merely share a word with it
+// (a restaurant chain, a city, a surname). Every result is screened before it is
+// stored, and only genuine mentions are kept.
+//
+//   BRAND_CATEGORY        short description of what the brands sell, e.g.
+//                         "snack brand". Added to brand searches and given to
+//                         the screener. Optional.
+//   RELEVANCE_EXCLUSIONS  free text listing look-alikes that must be rejected,
+//                         e.g. "On The Border Mexican Grill & Cantina restaurants".
+//                         Optional.
+const BRAND_CATEGORY = (process.env.BRAND_CATEGORY ?? "").trim();
+const RELEVANCE_EXCLUSIONS = (process.env.RELEVANCE_EXCLUSIONS ?? "").trim();
+
+type Sentiment = "positive" | "neutral" | "negative";
+
+interface MentionContext {
+  /** The brand or keyword whose search returned this result, when known. */
+  target?: string;
+  brands: string[];
+  keywords: string[];
+}
+
+interface MentionAssessment {
+  relevant: boolean;
+  /** Monitored brand the text is about, when the screener identified one. */
+  brand: string | null;
+  sentiment: Sentiment;
+  score: number;
+  reason: string;
+}
+
+export function buildAssessmentPrompt(text: string, ctx: MentionContext): string {
+  const isKeywordSearch = !!ctx.target && !ctx.brands.includes(ctx.target);
+  const lines = [
+    "You screen search results for a brand-monitoring tool. Reply ONLY with a JSON object — no prose, no markdown.",
+    "",
+    `Monitored brands: ${ctx.brands.join("; ")}`,
+  ];
+  if (BRAND_CATEGORY) lines.push(`What these brands are: ${BRAND_CATEGORY}`);
+  if (ctx.keywords.length) lines.push(`Category topics also monitored: ${ctx.keywords.join("; ")}`);
+  if (ctx.target) {
+    lines.push(
+      isKeywordSearch
+        ? `This result came from a search for the category topic "${ctx.target}".`
+        : `This result came from a search for the brand "${ctx.target}".`,
+    );
+  }
+  if (RELEVANCE_EXCLUSIONS) lines.push(`Never count these as mentions: ${RELEVANCE_EXCLUSIONS}`);
+  lines.push(
+    "",
+    "Step 1 — relevance. The text is relevant only if it is genuinely about one of the monitored brands: the brand itself, its products, its company, or people discussing them.",
+    isKeywordSearch
+      ? "Because this was a category-topic search, a text that is clearly about that topic in the brands' own category also counts, even if it names no monitored brand."
+      : "A text about the general category that never refers to a monitored brand is NOT relevant.",
+    "A text that only shares a word or name with a brand — a different company, a restaurant, a place, a person, an event, an unrelated product — is NOT relevant.",
+    "If the text does not make clear that it is about the monitored brand, answer not relevant.",
+    "",
+    "Step 2 — sentiment toward the brand (still fill this in when not relevant).",
+    "- score 0–30  = strongly negative (angry, disappointed, harmful to brand)",
+    "- score 31–45 = mildly negative",
+    "- score 46–54 = neutral",
+    "- score 55–74 = mildly positive",
+    "- score 75–100 = strongly positive",
+    "",
+    "Required format:",
+    '{"relevant": true | false, "brand": "<the monitored brand it is about, copied exactly from the list, or null>", "sentiment": "positive" | "neutral" | "negative", "score": <integer 0-100>, "reason": "<one sentence max>"}',
+    "",
+    "Text to analyze:",
+    `"""${text.slice(0, 1000)}"""`,
+    "",
+    "JSON:",
+  );
+  return lines.join("\n");
+}
+
+export function parseAssessment(raw: string, brands: string[]): MentionAssessment | null {
+  const cleaned = raw.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleaned.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  if (typeof parsed?.relevant !== "boolean" || typeof parsed?.score !== "number") return null;
+  const sentiment: Sentiment = ["positive", "neutral", "negative"].includes(parsed.sentiment)
+    ? parsed.sentiment
+    : "neutral";
+  const named = typeof parsed.brand === "string" ? parsed.brand.trim().toLowerCase() : "";
+  const brand = brands.find(b => b.toLowerCase() === named) ?? null;
+  return {
+    relevant: parsed.relevant,
+    brand,
+    sentiment,
+    score: Math.max(0, Math.min(100, Math.round(parsed.score))),
+    reason: typeof parsed.reason === "string" ? parsed.reason : "",
+  };
+}
+
+async function assessMentionLLM(
+  text: string,
+  ctx: MentionContext,
+  apiKey: string,
+): Promise<MentionAssessment | null> {
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5",
+        max_tokens: 200,
+        messages: [{ role: "user", content: buildAssessmentPrompt(text, ctx) }],
+      }),
+    });
+    if (!res.ok) {
+      log(`Anthropic API error ${res.status} — falling back to keyword relevance check`, "relevance");
+      return null;
+    }
+    const data = await res.json() as { content: Array<{ type: string; text: string }> };
+    const assessment = parseAssessment(data.content?.[0]?.text ?? "", ctx.brands);
+    if (!assessment) log("Could not read relevance reply — falling back to keyword relevance check", "relevance");
+    return assessment;
+  } catch (err) {
+    log(`Relevance check error: ${err} — falling back to keyword relevance check`, "relevance");
+    return null;
+  }
+}
+
+/**
+ * Keyword relevance check used only when the Claude screener is unavailable.
+ * A brand result must name the brand (or its leading word) and also use a
+ * category word; a topic result must contain the topic itself.
+ */
+export function isRelevantByKeywords(text: string, ctx: MentionContext): boolean {
+  const haystack = text.toLowerCase();
+  const categoryWords = [...ctx.keywords, BRAND_CATEGORY]
+    .join(" ")
+    .toLowerCase()
+    .split(/[^a-z0-9']+/)
+    .filter(w => w.length >= 4 && w !== "brand" && w !== "brands");
+  const hasCategoryWord = categoryWords.some(w => haystack.includes(w));
+  const namesBrand = (brand: string) => {
+    const name = brand.toLowerCase();
+    const leadingWord = name.split(/\s+/)[0] ?? "";
+    return haystack.includes(name) || (leadingWord.length >= 3 && haystack.includes(leadingWord));
+  };
+  if (ctx.target && !ctx.brands.includes(ctx.target)) {
+    return haystack.includes(ctx.target.toLowerCase());
+  }
+  const candidates = ctx.target ? [ctx.target] : ctx.brands;
+  return candidates.some(namesBrand) && hasCategoryWord;
+}
+
+async function assessMention(text: string, ctx: MentionContext): Promise<MentionAssessment> {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey) {
+    const result = await assessMentionLLM(text, ctx, anthropicKey);
+    if (result) return result;
+  }
+  const { sentiment, score } = scoreSentimentHeuristic(text);
+  return {
+    relevant: isRelevantByKeywords(text, ctx),
+    brand: null,
+    sentiment,
+    score,
+    reason: "keyword relevance check",
+  };
 }
 
 // ── Claude Haiku sentiment scorer ─────────────────────────────────────────
@@ -391,9 +587,9 @@ async function searchBrandMentions(
         search_depth: "basic",
         include_answer: false,
         include_raw_content: false,
-        max_results: 5,
-        // Only content published in the last day; drop results with no publish date
-        time_range: "day",
+        max_results: 10,
+        // Only content published inside the search window; drop results with no publish date
+        time_range: TAVILY_TIME_RANGE,
         filter_by_published_date: true,
         include_published_date: true,
       }),
@@ -403,7 +599,7 @@ async function searchBrandMentions(
       return [];
     }
     const data = await res.json() as { results: SearchResult[] };
-    // Tavily's "day" range is approximate, so enforce the exact window here too
+    // Tavily's ranges are approximate, so enforce the exact window here too
     return (data.results ?? []).filter(r => isWithinSearchWindow(r.published_date));
   } catch (err) {
     log(`Tavily search error for "${query}": ${err}`, "tavily");
@@ -423,11 +619,15 @@ async function ingestResults(
   brandName: string,
   allBrands: string[],
   apiKey: string,
-): Promise<number> {
+  screening: { target?: string; keywords: string[] } = { keywords: [] },
+): Promise<{ ingested: number; skipped: number }> {
   const storage = getStorage();
   const existing = await storage.getConversations();
   const existingUrls = new Set(existing.map(c => c.url));
   let ingested = 0;
+  let skipped = 0;
+  const target = screening.target;
+  const targetIsBrand = !!target && allBrands.includes(target);
 
   for (const result of results) {
     if (existingUrls.has(result.url)) continue;
@@ -442,7 +642,20 @@ async function ingestResults(
       log(`Skipped contaminated content: ${result.url}`, "ingest");
       continue;
     }
-    const { sentiment, score } = await scoreSentiment(text);
+
+    // Keep only genuine mentions — screen out look-alikes that share a name
+    const assessment = await assessMention(`${text}\nSource: ${result.url}`, {
+      target,
+      brands: allBrands,
+      keywords: screening.keywords,
+    });
+    if (!assessment.relevant) {
+      skipped++;
+      log(`Skipped (not a genuine mention): ${result.url} — ${assessment.reason}`, "relevance");
+      continue;
+    }
+    const { sentiment, score } = assessment;
+    log(`Kept: ${sentiment} (${score}) — ${assessment.reason}`, "relevance");
     const platform = detectPlatform(result.url);
     const priority = priorityFromSentimentAndEngagement(sentiment, score);
 
@@ -450,7 +663,10 @@ async function ingestResults(
     const brandMentions = allBrands.filter(b =>
       text.toLowerCase().includes(b.toLowerCase())
     );
-    if (brandMentions.length === 0) brandMentions.push(brandName);
+    if (assessment.brand && !brandMentions.includes(assessment.brand)) {
+      brandMentions.push(assessment.brand);
+    }
+    if (brandMentions.length === 0) brandMentions.push(targetIsBrand ? target! : brandName);
 
     const id = `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -469,7 +685,7 @@ async function ingestResults(
       brandMentions,
       tags: ["tavily", "auto-captured"],
       engagementCount: Math.floor(result.score * 100),
-      flaggedReason: `Auto-captured via Tavily search for "${brandName}"`,
+      flaggedReason: `Auto-captured via Tavily search for "${target ?? brandName}"`,
       assignedTo: null,
     });
 
@@ -477,7 +693,7 @@ async function ingestResults(
     existingUrls.add(result.url);
   }
 
-  return ingested;
+  return { ingested, skipped };
 }
 
 // ── AI draft generation via Tavily ─────────────────────────────────────────
@@ -539,12 +755,13 @@ export async function runTavilyRefresh(
 
   const primaryBrand = brands[0] ?? "Brand";
   log(
-    `Starting brand mention refresh for "${primaryBrand}" (${brands.length} brands) — last ${SEARCH_WINDOW_HOURS} hours only`,
+    `Starting brand mention refresh for "${primaryBrand}" (${brands.length} brands) — last ${SEARCH_WINDOW_LABEL} only`,
     "tavily",
   );
 
   const storage = getStorage();
   let totalIngested = 0;
+  let totalSkipped = 0;
 
   // Search ALL brands + ALL keywords — full coverage, no arbitrary cap.
   // Queries run sequentially to avoid hammering the Tavily API simultaneously.
@@ -556,14 +773,21 @@ export async function runTavilyRefresh(
   log(`Tavily: running ${searchTargets.length} search queries`, "tavily");
 
   for (const target of searchTargets) {
+    // Brand names are often ordinary words, so brand searches carry the category
+    // (e.g. "snack brand") to steer results toward the brand rather than look-alikes.
+    const categoryHint = BRAND_CATEGORY && brands.includes(target) ? ` ${BRAND_CATEGORY}` : "";
     const results = await searchBrandMentions(
-      `"${target}" review OR mention OR discussion`,
+      `"${target}"${categoryHint} review OR mention OR discussion`,
       apiKey,
     );
-    const count = await ingestResults(results, primaryBrand, brands, apiKey);
-    if (count > 0) {
-      log(`Ingested ${count} new mentions for "${target}"`, "tavily");
-      totalIngested += count;
+    const { ingested, skipped } = await ingestResults(results, primaryBrand, brands, apiKey, {
+      target,
+      keywords,
+    });
+    totalSkipped += skipped;
+    if (ingested > 0) {
+      log(`Ingested ${ingested} new mentions for "${target}"`, "tavily");
+      totalIngested += ingested;
     }
   }
 
@@ -575,7 +799,14 @@ export async function runTavilyRefresh(
     if (apifyKey) {
       const apifyResults = await runApifyRefresh(brands, keywords, apifyKey, sinceDate);
       if (apifyResults.length > 0) {
-        const apifyCount = await ingestResults(apifyResults, primaryBrand, brands, apiKey);
+        const { ingested: apifyCount, skipped: apifySkipped } = await ingestResults(
+          apifyResults,
+          primaryBrand,
+          brands,
+          apiKey,
+          { keywords },
+        );
+        totalSkipped += apifySkipped;
         if (apifyCount > 0) {
           log(`Ingested ${apifyCount} new mentions from Apify (Instagram/LinkedIn/TikTok/Twitter/YouTube/Google)`, "apify");
           totalIngested += apifyCount;
@@ -596,7 +827,10 @@ export async function runTavilyRefresh(
     });
   }
 
-  log(`Refresh complete — ${totalIngested} new mentions ingested`, "tavily");
+  log(
+    `Refresh complete — ${totalIngested} new mentions ingested, ${totalSkipped} skipped as not genuine mentions`,
+    "tavily",
+  );
 }
 
 // ── Scheduler state (in-memory) ───────────────────────────────────────────
