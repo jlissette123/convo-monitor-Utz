@@ -34,6 +34,33 @@ function resolveScanIntervalDays(): number {
 
 const REFRESH_INTERVAL_MS = Math.round(resolveScanIntervalDays() * 24 * 60 * 60 * 1000);
 
+// Brand-mention scans only keep content published within this window.
+const SEARCH_WINDOW_HOURS = 24;
+const SEARCH_WINDOW_MS = SEARCH_WINDOW_HOURS * 60 * 60 * 1000;
+
+/**
+ * True when a Tavily `published_date` falls inside the search window.
+ * Results with no date, or a date that cannot be read, are rejected.
+ * Dates reported at exactly midnight UTC carry no time of day, so they are
+ * compared by calendar day against the day the window starts on.
+ */
+export function isWithinSearchWindow(
+  publishedDate: string | null | undefined,
+  now: number = Date.now(),
+): boolean {
+  if (!publishedDate) return false;
+  const published = Date.parse(publishedDate);
+  if (Number.isNaN(published)) return false;
+  if (published > now + 60 * 60 * 1000) return false; // dated in the future
+  const cutoff = now - SEARCH_WINDOW_MS;
+  const dateOnly = published % (24 * 60 * 60 * 1000) === 0;
+  if (dateOnly) {
+    const cutoffDayStart = cutoff - (cutoff % (24 * 60 * 60 * 1000));
+    return published >= cutoffDayStart;
+  }
+  return published >= cutoff;
+}
+
 // Node timers cannot wait longer than 2^31-1 ms (~24.8 days). A longer delay is
 // silently replaced with 1 ms, which made the 30-day interval fire continuously.
 // The scheduler therefore wakes on a short tick and only scans when a run is due.
@@ -342,10 +369,18 @@ function priorityFromSentimentAndEngagement(
 }
 
 // ── Tavily search ──────────────────────────────────────────────────────────
+type SearchResult = {
+  url: string;
+  title: string;
+  content: string;
+  score: number;
+  published_date?: string | null;
+};
+
 async function searchBrandMentions(
   query: string,
   apiKey: string,
-): Promise<Array<{ url: string; title: string; content: string; score: number }>> {
+): Promise<SearchResult[]> {
   try {
     const res = await fetch(TAVILY_API_URL, {
       method: "POST",
@@ -357,23 +392,34 @@ async function searchBrandMentions(
         include_answer: false,
         include_raw_content: false,
         max_results: 5,
+        // Only content published in the last day; drop results with no publish date
+        time_range: "day",
+        filter_by_published_date: true,
+        include_published_date: true,
       }),
     });
     if (!res.ok) {
       log(`Tavily search failed for "${query}": ${res.status}`, "tavily");
       return [];
     }
-    const data = await res.json() as { results: Array<{ url: string; title: string; content: string; score: number }> };
-    return data.results ?? [];
+    const data = await res.json() as { results: SearchResult[] };
+    // Tavily's "day" range is approximate, so enforce the exact window here too
+    return (data.results ?? []).filter(r => isWithinSearchWindow(r.published_date));
   } catch (err) {
     log(`Tavily search error for "${query}": ${err}`, "tavily");
     return [];
   }
 }
 
+/** Real publish date when the source reports one, otherwise the capture time. */
+function toIsoOrNow(publishedDate: string | null | undefined): string {
+  const parsed = publishedDate ? Date.parse(publishedDate) : NaN;
+  return new Date(Number.isNaN(parsed) ? Date.now() : parsed).toISOString();
+}
+
 // ── Ingest results into storage ────────────────────────────────────────────
 async function ingestResults(
-  results: Array<{ url: string; title: string; content: string; score: number }>,
+  results: SearchResult[],
   brandName: string,
   allBrands: string[],
   apiKey: string,
@@ -415,7 +461,7 @@ async function ingestResults(
       authorName: result.title.slice(0, 60),
       content: result.content.slice(0, 500),
       url: result.url,
-      publishedAt: new Date().toISOString(),
+      publishedAt: toIsoOrNow(result.published_date),
       sentiment,
       sentimentScore: score,
       priority,
@@ -484,7 +530,7 @@ export async function runTavilyRefresh(
   brands: string[],
   keywords: string[],
   apiKey: string,
-  sinceDate?: string, // ISO string — only fetch content published after this date
+  sinceDate?: string, // ISO string of the previous scan — passed to the Apify scrapers
 ): Promise<void> {
   if (!apiKey) {
     log("TAVILY_API_KEY not set — skipping refresh", "tavily");
@@ -492,17 +538,13 @@ export async function runTavilyRefresh(
   }
 
   const primaryBrand = brands[0] ?? "Brand";
-  const sinceLabel = sinceDate ? ` (since ${new Date(sinceDate).toLocaleTimeString()})` : "";
-  log(`Starting brand mention refresh for "${primaryBrand}" (${brands.length} brands)${sinceLabel}`, "tavily");
+  log(
+    `Starting brand mention refresh for "${primaryBrand}" (${brands.length} brands) — last ${SEARCH_WINDOW_HOURS} hours only`,
+    "tavily",
+  );
 
   const storage = getStorage();
   let totalIngested = 0;
-
-  // Build a recency qualifier for Tavily queries — biases results toward recent content
-  // Tavily doesn't support strict date filters but appending a date string helps ranking
-  const recencyHint = sinceDate
-    ? ` after:${new Date(sinceDate).toISOString().slice(0, 10)}`
-    : "";
 
   // Search ALL brands + ALL keywords — full coverage, no arbitrary cap.
   // Queries run sequentially to avoid hammering the Tavily API simultaneously.
@@ -515,7 +557,7 @@ export async function runTavilyRefresh(
 
   for (const target of searchTargets) {
     const results = await searchBrandMentions(
-      `"${target}" review OR mention OR discussion${recencyHint}`,
+      `"${target}" review OR mention OR discussion`,
       apiKey,
     );
     const count = await ingestResults(results, primaryBrand, brands, apiKey);
