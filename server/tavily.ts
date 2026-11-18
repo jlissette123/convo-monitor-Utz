@@ -151,7 +151,7 @@ export function buildAssessmentPrompt(text: string, ctx: MentionContext): string
     "A text about the general category, or about other brands in it, that never refers to a monitored brand is NOT relevant.",
     "A text that only shares a word or name with a brand — a different company, a restaurant, a place, a person, an event, an unrelated product — is NOT relevant.",
     "A store, marketplace or brand-shop page that only lists a product for sale (price, pack size, nutrition facts, add to cart) is NOT relevant — it is a listing, not a mention. Reviews, articles, news, posts and discussions are.",
-    "If the text does not make clear that it is about the monitored brand, answer not relevant.",
+    "The text itself must show that it is about the monitored brand: it has to refer to the brand's products, its kind of food, where it is sold, or its company. A name on its own is NOT enough, and neither is a name that belongs to a person, a character, a pet, an account handle or a place, or an account that is merely tagged in a conversation about something else. Never assume a name refers to the brand just because the brand is on the list — when the text does not make it clear, answer not relevant.",
     "",
     "Step 2 — sentiment toward the brand (still fill this in when not relevant).",
     "- score 0–30  = strongly negative (angry, disappointed, harmful to brand)",

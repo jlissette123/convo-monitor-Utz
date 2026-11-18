@@ -34,8 +34,8 @@ const log = (msg: string) =>
     `${new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true })} [relevance-review] ${msg}`,
   );
 
-/** Version of the screening rules a verdict was made with (the prompt last changed in 2.1.6). */
-const SCREEN_VERSION = "2.1.6";
+/** Version of the screening rules a verdict was made with (the prompt last changed in 2.1.8). */
+const SCREEN_VERSION = "2.1.8";
 const MIN_TOKEN_LENGTH = 24;
 const MAX_CONCURRENCY = 8;
 const MAX_ATTEMPTS = 5;
